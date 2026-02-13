@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BookingStatus {
+  NEW
+  IN_REVIEW
+  NEEDS_INFO
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum BudgetRange {
+  UNDER_200
+  B200_400
+  B400_700
+  B700_1000
+  B1000_1500
+  B1500_2000
+  OVER_2000
+}
+
+enum IntakeSource {
+  DIRECT
+  INSTAGRAM
+  FACEBOOK
+  GOOGLE
+  TIKTOK
+  OTHER
+}
+
+model AdminUser {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  passwordHash    String
+  displayName     String?
+  isActive        Boolean          @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  bookingRequests BookingRequest[]
+
+  @@index([isActive])
+}
+
+model Client {
+  id        String    @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String?
+  phone     String?
+  instagram String?
+  birthday  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  bookingRequests BookingRequest[]
+
+  @@index([email])
+  @@index([phone])
+}
+
+model BookingRequest {
+  id     String        @id @default(uuid())
+  status BookingStatus @default(NEW)
+
+  // client relation
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  // core request fields
+  placement       String?
+  sizeDescription String?
+  styleNotes      String?
+  description     String
+  budgetRange     BudgetRange
+  referencesNotes String?
+
+  // artist selection (Phase 1: no Artist model yet)
+  preferredArtistName String?
+  studioChooses       Boolean @default(true)
+
+  // tracking fields
+  source      IntakeSource @default(DIRECT)
+  utmCampaign String?
+  utmAdset    String?
+  utmAd       String?
+  referrer    String?
+  landingPath String?
+
+  // admin handling
+  adminNotes         String?
+  internalStatusNote String?
+  reviewedAt         DateTime?
+  reviewedByAdminId  String?
+  reviewedByAdmin    AdminUser? @relation(fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  medicalDeclaration MedicalDeclaration?
+  consent            Consent?
+  uploads            Upload[]
+
+  @@index([status, createdAt])
+  @@index([clientId, createdAt])
+}
+
+model MedicalDeclaration {
+  id               String         @id @default(uuid())
+  bookingRequestId String         @unique
+  bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+
+  // keep it flexible but structured enough
+  hasAllergies         Boolean
+  allergiesDetails     String?
+  hasSkinCondition     Boolean
+  skinConditionDetails String?
+  isPregnantOrNursing  Boolean
+  hasHeartCondition    Boolean
+  hasDiabetes          Boolean
+  takesBloodThinners   Boolean
+  takesMedication      Boolean
+  medicationDetails    String?
+  otherNotes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Consent {
+  id               String         @id @default(uuid())
+  bookingRequestId String         @unique
+  bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+
+  // legal flags
+  isAdultConfirmed Boolean
+  termsAccepted    Boolean
+  privacyAccepted  Boolean
+
+  // signature/identity (optional in Phase 1)
+  fullName String?
+  signedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Upload {
+  id               String         @id @default(uuid())
+  bookingRequestId String
+  bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+
+  kind         String // e.g. "REFERENCE", "MEDICAL", "OTHER"
+  originalName String?
+  mimeType     String?
+  bytes        Int?
+
+  cloudinaryPublicId String
+  secureUrl          String
+
+  createdAt DateTime @default(now())
+
+  @@index([bookingRequestId, createdAt])
+}
