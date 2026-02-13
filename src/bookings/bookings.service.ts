@@ -1,12 +1,30 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BookingStatus, Prisma } from '@prisma/client';
+
+const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
+  NEW: ['IN_REVIEW', 'NEEDS_INFO', 'APPROVED', 'REJECTED'],
+  IN_REVIEW: ['NEEDS_INFO', 'APPROVED', 'REJECTED'],
+  NEEDS_INFO: ['IN_REVIEW', 'APPROVED', 'REJECTED'],
+  APPROVED: ['CANCELLED'],
+  REJECTED: [],
+  CANCELLED: [],
+};
+
+// statuses that count as "reviewed" in your audit fields
+const REVIEWED_STATUSES: BookingStatus[] = [
+  'IN_REVIEW',
+  'NEEDS_INFO',
+  'APPROVED',
+  'REJECTED',
+];
 
 @Injectable()
 export class BookingsService {
   constructor(private prisma: PrismaService) {}
 
   async list(params: {
-    status?: string;
+    status?: BookingStatus;
     q?: string;
     page: number;
     limit: number;
@@ -14,17 +32,21 @@ export class BookingsService {
     const { status, q, page, limit } = params;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Prisma.BookingRequestWhereInput = {};
+
     if (status) where.status = status;
 
-    if (q) {
+    if (q?.trim()) {
+      const term = q.trim();
       where.client = {
-        OR: [
-          { firstName: { contains: q, mode: 'insensitive' } },
-          { lastName: { contains: q, mode: 'insensitive' } },
-          { email: { contains: q, mode: 'insensitive' } },
-          { phone: { contains: q, mode: 'insensitive' } },
-        ],
+        is: {
+          OR: [
+            { firstName: { contains: term, mode: 'insensitive' } },
+            { lastName: { contains: term, mode: 'insensitive' } },
+            { email: { contains: term, mode: 'insensitive' } },
+            { phone: { contains: term, mode: 'insensitive' } },
+          ],
+        },
       };
     }
 
@@ -35,7 +57,9 @@ export class BookingsService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
-        include: { client: true },
+        include: {
+          client: true,
+        },
       }),
     ]);
 
@@ -43,39 +67,62 @@ export class BookingsService {
   }
 
   async detail(id: string) {
-    const br = await this.prisma.bookingRequest.findUnique({
+    // IMPORTANT: avoid leaking AdminUser.passwordHash
+    return this.prisma.bookingRequest.findUniqueOrThrow({
       where: { id },
       include: {
         client: true,
         medicalDeclaration: true,
         consent: true,
         uploads: { orderBy: { createdAt: 'desc' } },
-        reviewedByAdmin: true,
+        reviewedByAdmin: {
+          select: { id: true, email: true, displayName: true },
+        },
       },
     });
-    if (!br) throw new NotFoundException('BookingRequest not found');
-    return br;
   }
 
   async updateStatus(
     id: string,
     adminId: string,
-    data: { status: string; adminNotes?: string; internalStatusNote?: string },
+    data: {
+      status: BookingStatus;
+      adminNotes?: string;
+      internalStatusNote?: string;
+    },
   ) {
-    const exists = await this.prisma.bookingRequest.findUnique({
+    // Load current status so we can validate transitions
+    // If record doesn't exist, findUniqueOrThrow will trigger Prisma P2025 (handled by your filter)
+    const current = await this.prisma.bookingRequest.findUniqueOrThrow({
       where: { id },
-      select: { id: true },
+      select: { status: true },
     });
-    if (!exists) throw new NotFoundException('BookingRequest not found');
+
+    const next = data.status;
+
+    const allowedNext = ALLOWED_TRANSITIONS[current.status] ?? [];
+    if (!allowedNext.includes(next) && current.status !== next) {
+      throw new BadRequestException(
+        `Invalid status transition: ${current.status} -> ${next}`,
+      );
+    }
+
+    const shouldSetReviewed = REVIEWED_STATUSES.includes(next);
 
     return this.prisma.bookingRequest.update({
       where: { id },
       data: {
-        status: data.status as any,
+        status: next,
         adminNotes: data.adminNotes,
         internalStatusNote: data.internalStatusNote,
-        reviewedAt: new Date(),
-        reviewedByAdminId: adminId,
+
+        // only set review fields when status is considered "reviewed"
+        ...(shouldSetReviewed
+          ? {
+              reviewedAt: new Date(),
+              reviewedByAdminId: adminId,
+            }
+          : {}),
       },
     });
   }

@@ -35,6 +35,12 @@ enum IntakeSource {
   OTHER
 }
 
+enum UploadKind {
+  REFERENCE
+  MEDICAL
+  OTHER
+}
+
 model AdminUser {
   id              String           @id @default(uuid())
   email           String           @unique
@@ -110,6 +116,8 @@ model BookingRequest {
 
   @@index([status, createdAt])
   @@index([clientId, createdAt])
+  @@index([createdAt])          
+  @@index([source, createdAt])
 }
 
 model MedicalDeclaration {
@@ -157,7 +165,7 @@ model Upload {
   bookingRequestId String
   bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
 
-  kind         String // e.g. "REFERENCE", "MEDICAL", "OTHER"
+  kind         UploadKind
   originalName String?
   mimeType     String?
   bytes        Int?

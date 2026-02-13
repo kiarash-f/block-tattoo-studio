@@ -5,7 +5,11 @@ import {
   CreateBookingIntakeDto,
   BudgetRange as DtoBudgetRange,
 } from './dto/booking-intake.dto';
-import { BudgetRange as PrismaBudgetRange } from '@prisma/client';
+import {
+  BudgetRange as PrismaBudgetRange,
+  UploadKind,
+  IntakeSource,
+} from '@prisma/client';
 
 function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
   switch (v) {
@@ -96,6 +100,9 @@ export class PublicService {
         ? (bookingRequest.studioChooses ?? false)
         : true;
 
+      const source: IntakeSource =
+        (bookingRequest.source as IntakeSource) ?? IntakeSource.DIRECT;
+
       const br = await tx.bookingRequest.create({
         data: {
           clientId: clientRow.id,
@@ -111,7 +118,7 @@ export class PublicService {
           preferredArtistName,
           studioChooses,
 
-          source: (bookingRequest.source as any) ?? 'DIRECT',
+          source,
           utmCampaign: bookingRequest.utmCampaign ?? undefined,
           utmAdset: bookingRequest.utmAdset ?? undefined,
           utmAd: bookingRequest.utmAd ?? undefined,
@@ -156,7 +163,7 @@ export class PublicService {
           await tx.upload.create({
             data: {
               bookingRequestId: br.id,
-              kind: 'REFERENCE',
+              kind: UploadKind.REFERENCE,
               originalName: f.originalname ?? undefined,
               mimeType: f.mimetype ?? undefined,
               bytes: typeof f.size === 'number' ? f.size : undefined,

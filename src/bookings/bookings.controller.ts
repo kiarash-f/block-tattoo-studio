@@ -10,9 +10,9 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
-
 import { BookingsService } from './bookings.service';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
+import { ListBookingsQueryDto } from './dto/list-bookings.query.dto';
 import type { AdminJwtPayload } from '../auth/jwt.strategy';
 
 @ApiTags('Admin Bookings')
@@ -24,17 +24,12 @@ export class BookingsController {
 
   @Get()
   @ApiOperation({ summary: 'List booking requests (admin)' })
-  list(
-    @Query('status') status?: string,
-    @Query('q') q?: string,
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
-  ) {
+  list(@Query() query: ListBookingsQueryDto) {
     return this.bookings.list({
-      status,
-      q,
-      page: Math.max(1, Number(page) || 1),
-      limit: Math.min(100, Math.max(1, Number(limit) || 20)),
+      status: query.status,
+      q: query.q,
+      page: query.page,
+      limit: query.limit,
     });
   }
 
@@ -53,8 +48,6 @@ export class BookingsController {
     @Req() req: any,
   ) {
     const user = req.user as AdminJwtPayload;
-    console.log('AUTH HEADER:', req.headers.authorization);
-    console.log('REQ.USER:', req.user);
     return this.bookings.updateStatus(id, user.sub, dto);
   }
 }

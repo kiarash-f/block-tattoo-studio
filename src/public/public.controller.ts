@@ -30,11 +30,46 @@ export class PublicController {
   @ApiBody({
     schema: {
       type: 'object',
-      properties: {
-        payload: { type: 'string', description: 'JSON string' },
-        files: { type: 'array', items: { type: 'string', format: 'binary' } },
-      },
       required: ['payload'],
+      properties: {
+        payload: {
+          type: 'string',
+          format: 'json',
+          example: `{
+  "client": {
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john@example.com",
+    "phone": "123456789"
+  },
+  "bookingRequest": {
+    "description": "Small tattoo on wrist",
+    "budgetRange": "B200_400"
+  },
+  "medicalDeclaration": {
+    "hasAllergies": false,
+    "hasSkinCondition": false,
+    "isPregnantOrNursing": false,
+    "hasHeartCondition": false,
+    "hasDiabetes": false,
+    "takesBloodThinners": false,
+    "takesMedication": false
+  },
+  "consent": {
+    "isAdultConfirmed": true,
+    "termsAccepted": true,
+    "privacyAccepted": true
+  }
+}`,
+        },
+        files: {
+          type: 'array',
+          items: {
+            type: 'string',
+            format: 'binary',
+          },
+        },
+      },
     },
   })
   @UseInterceptors(

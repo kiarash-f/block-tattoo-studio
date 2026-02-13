@@ -1,13 +1,6 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-
-export enum BookingStatus {
-  NEW = 'NEW',
-  IN_REVIEW = 'IN_REVIEW',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  COMPLETED = 'COMPLETED',
-}
+import { BookingStatus } from '@prisma/client';
 
 export class UpdateBookingStatusDto {
   @ApiProperty({ enum: BookingStatus })
@@ -17,10 +10,12 @@ export class UpdateBookingStatusDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   adminNotes?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(5000)
   internalStatusNote?: string;
 }
