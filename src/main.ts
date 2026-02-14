@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -31,7 +32,7 @@ async function bootstrap() {
         description: 'Paste token here: Bearer <JWT>',
         in: 'header',
       },
-      'admin-jwt', 
+      'admin-jwt',
     )
     .build();
 
@@ -44,6 +45,8 @@ async function bootstrap() {
 
   // Global Prisma exception filter
   app.useGlobalFilters(new PrismaExceptionFilter());
+
+  app.use(helmet());
 
   const port = process.env.PORT ? Number(process.env.PORT) : 3100;
   await app.listen(port, '0.0.0.0');

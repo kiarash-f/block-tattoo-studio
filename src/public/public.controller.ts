@@ -16,12 +16,14 @@ import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { PublicService } from './public.service';
 import { CreateBookingIntakeDto, IntakeSource } from './dto/booking-intake.dto';
+import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Public')
 @Controller('public')
 export class PublicController {
   constructor(private readonly publicService: PublicService) {}
 
+  @Throttle({ default: { limit: 10, ttl: 60 } })
   @Post('booking-intake')
   @ApiOperation({
     summary: 'Public booking intake (multipart: payload + files[])',
@@ -74,8 +76,8 @@ export class PublicController {
   })
   @UseInterceptors(
     FilesInterceptor('files', 10, {
-      storage: memoryStorage(), // ✅ ensures file.buffer exists
-      limits: { fileSize: 10 * 1024 * 1024 },
+      storage: memoryStorage(), // ensures file.buffer exists
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
     }),
   )
   async bookingIntake(
@@ -84,11 +86,23 @@ export class PublicController {
     @Query() query: any,
     @Headers() headers: Record<string, string>,
   ) {
-    if (!payload) throw new BadRequestException('Missing payload');
+    const payloadStr = typeof payload === 'string' ? payload.trim() : '';
+    if (!payloadStr) throw new BadRequestException('Missing payload');
+
+    // ✅ Step 6.5: strict mimetype validation
+    const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+    for (const f of files ?? []) {
+      if (!allowedMimeTypes.has(f.mimetype)) {
+        throw new BadRequestException(
+          `Invalid file type for "${f.originalname}". Got "${f.mimetype}". Allowed: image/jpeg, image/png, image/webp`,
+        );
+      }
+    }
 
     let parsed: any;
     try {
-      parsed = JSON.parse(payload);
+      parsed = JSON.parse(payloadStr);
     } catch {
       throw new BadRequestException('Invalid JSON in payload');
     }
