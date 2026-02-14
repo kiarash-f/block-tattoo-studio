@@ -7,6 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum BookingLinkScope {
+  INTAKE_CONTINUE
+  UPLOAD
+  VIEW
+}
+
+enum BookingLinkStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+  CONSUMED
+}
+
 enum BookingStatus {
   NEW
   IN_REVIEW
@@ -105,7 +118,8 @@ model BookingRequest {
   internalStatusNote String?
   reviewedAt         DateTime?
   reviewedByAdminId  String?
-  reviewedByAdmin    AdminUser? @relation(fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
+  reviewedByAdmin    AdminUser?         @relation(fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
+  tokens             BookingLinkToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -116,7 +130,7 @@ model BookingRequest {
 
   @@index([status, createdAt])
   @@index([clientId, createdAt])
-  @@index([createdAt])          
+  @@index([createdAt])
   @@index([source, createdAt])
 }
 
@@ -173,7 +187,41 @@ model Upload {
   cloudinaryPublicId String
   secureUrl          String
 
-  createdAt DateTime @default(now())
+  createdAt         DateTime          @default(now())
+  createdViaTokenId String?
+  createdViaToken   BookingLinkToken? @relation(fields: [createdViaTokenId], references: [id], onDelete: SetNull)
 
   @@index([bookingRequestId, createdAt])
+  @@index([createdViaTokenId])
+}
+
+model BookingLinkToken {
+  id String @id @default(cuid())
+
+  bookingRequestId String
+  bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+
+  // store hash only (NEVER store raw secret)
+  secretHash String
+
+  scopes BookingLinkScope[]
+  status BookingLinkStatus  @default(ACTIVE)
+
+  expiresAt DateTime
+
+  // auditing / observability
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  useCount   Int       @default(0)
+
+  revokedAt    DateTime?
+  revokeReason String?
+
+  //who generated it
+  createdByAdminId String?
+  // createdByAdmin   AdminUser?       @relation(fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  createdUploads   Upload[]
+
+  @@index([bookingRequestId])
+  @@index([status, expiresAt])
 }

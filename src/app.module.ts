@@ -9,6 +9,7 @@ import { BookingsModule } from './bookings/bookings.module';
 import { PublicModule } from './public/public.module';
 import { MediaModule } from './media/media.module';
 import { envValidationSchema } from './config/env.validation';
+import { BookingLinksModule } from './booking-links/booking-links.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { envValidationSchema } from './config/env.validation';
     PublicModule,
     MediaModule,
     HealthModule,
+    BookingLinksModule,
   ],
 })
 export class AppModule {}

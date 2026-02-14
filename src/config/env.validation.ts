@@ -15,4 +15,7 @@ export const envValidationSchema = Joi.object({
   CLOUDINARY_API_KEY: Joi.string().required(),
   CLOUDINARY_API_SECRET: Joi.string().required(),
   CLOUDINARY_FOLDER: Joi.string().default('tattoo-studio/booking-requests'),
+
+  PUBLIC_BASE_URL: Joi.string().uri().required(),
+  BOOKING_LINK_TOKEN_PEPPER: Joi.string().min(32).required(),
 }).unknown(true);
