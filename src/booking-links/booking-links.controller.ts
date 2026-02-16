@@ -1,24 +1,31 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BookingLinksService } from './booking-links.service';
 import { CreateBookingLinkDto } from './dto/create-booking-link.dto';
-// import { Roles } from '../auth/roles.decorator'; // if you have RBAC
-// import { UseGuards } from '@nestjs/common';
+import type { AdminJwtPayload } from '../auth/jwt.strategy'; // adjust path if needed
 
+@ApiTags('Admin Booking Links')
+@ApiBearerAuth('admin-jwt')
+@UseGuards(AuthGuard('jwt'))
 @Controller('admin/booking-requests')
 export class BookingLinksController {
   constructor(private readonly tokens: BookingLinksService) {}
 
   @Post(':id/links')
-  // @Roles('ADMIN')
+  @ApiOperation({ summary: 'Create tokenized booking link (admin)' })
   async createBookingLink(
     @Param('id') bookingRequestId: string,
     @Body() dto: CreateBookingLinkDto,
+    @Req() req: any,
   ) {
+    const user = req.user as AdminJwtPayload;
+
     const result = await this.tokens.createToken({
       bookingRequestId,
       scopes: dto.scopes as any,
       expiresAt: new Date(dto.expiresAt),
-      // createdByAdminId: req.user.id // add if you want
+      // createdByAdminId: user.sub, // enable if you added this column in Prisma
     });
 
     return {

@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BookingStatus, Prisma } from '@prisma/client';
+import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake.dto';
 
 const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   NEW: ['IN_REVIEW', 'NEEDS_INFO', 'APPROVED', 'REJECTED'],
@@ -125,5 +130,86 @@ export class BookingsService {
           : {}),
       },
     });
+  }
+
+  /**
+   * Public (token-based) read of intake fields.
+   * Only selects fields safe for the client to see.
+   */
+  async getPublicIntake(bookingRequestId: string) {
+    const booking = await this.prisma.bookingRequest.findUnique({
+      where: { id: bookingRequestId },
+      select: {
+        id: true,
+        status: true,
+
+        placement: true,
+        sizeDescription: true,
+        styleNotes: true,
+        description: true,
+        budgetRange: true,
+        referencesNotes: true,
+
+        preferredArtistName: true,
+        studioChooses: true,
+
+        uploads: {
+          select: {
+            id: true,
+            kind: true,
+            // ⚠️ Replace this with your real Upload URL field name:
+            // publicUrl / secureUrl / cloudinaryUrl / fileUrl / etc.
+            secureUrl: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+
+        medicalDeclaration: true,
+        consent: true,
+      },
+    });
+
+    if (!booking) throw new NotFoundException('BookingRequest not found');
+    return booking;
+  }
+
+  /**
+   * Public (token-based) update of intake fields.
+   * Guardrails:
+   * - Only allowed in NEW or NEEDS_INFO (your current workflow)
+   * - Updates only allow-listed fields (no status/admin fields)
+   */
+  async updatePublicIntake(bookingRequestId: string, dto: PublicUpdateIntakeDto) {
+    const booking = await this.prisma.bookingRequest.findUnique({
+      where: { id: bookingRequestId },
+      select: { id: true, status: true },
+    });
+
+    if (!booking) throw new NotFoundException('BookingRequest not found');
+
+    const ALLOWED_EDIT_STATUSES = new Set<BookingStatus>(['NEW', 'NEEDS_INFO']);
+
+    if (!ALLOWED_EDIT_STATUSES.has(booking.status)) {
+      throw new BadRequestException(
+        `This booking cannot be edited at its current status (${booking.status})`,
+      );
+    }
+
+    await this.prisma.bookingRequest.update({
+      where: { id: bookingRequestId },
+      data: {
+        placement: dto.placement,
+        sizeDescription: dto.sizeDescription,
+        styleNotes: dto.styleNotes,
+        description: dto.description,
+        budgetRange: dto.budgetRange,
+        referencesNotes: dto.referencesNotes,
+        preferredArtistName: dto.preferredArtistName,
+        studioChooses: dto.studioChooses,
+      },
+    });
+
+    return this.getPublicIntake(bookingRequestId);
   }
 }
