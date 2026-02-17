@@ -3,7 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BookingLinksService } from './booking-links.service';
 import { CreateBookingLinkDto } from './dto/create-booking-link.dto';
-import type { AdminJwtPayload } from '../auth/jwt.strategy'; // adjust path if needed
+import type { AdminJwtPayload } from '../auth/jwt.strategy'; 
 
 @ApiTags('Admin Booking Links')
 @ApiBearerAuth('admin-jwt')

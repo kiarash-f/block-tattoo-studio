@@ -16,7 +16,7 @@ const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   CANCELLED: [],
 };
 
-// statuses that count as "reviewed" in your audit fields
+
 const REVIEWED_STATUSES: BookingStatus[] = [
   'IN_REVIEW',
   'NEEDS_INFO',
@@ -72,7 +72,7 @@ export class BookingsService {
   }
 
   async detail(id: string) {
-    // IMPORTANT: avoid leaking AdminUser.passwordHash
+   
     return this.prisma.bookingRequest.findUniqueOrThrow({
       where: { id },
       include: {
@@ -80,6 +80,10 @@ export class BookingsService {
         medicalDeclaration: true,
         consent: true,
         uploads: { orderBy: { createdAt: 'desc' } },
+        assignments: {
+          include: { artist: true, station: true },
+          orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+        },
         reviewedByAdmin: {
           select: { id: true, email: true, displayName: true },
         },
@@ -180,7 +184,10 @@ export class BookingsService {
    * - Only allowed in NEW or NEEDS_INFO (your current workflow)
    * - Updates only allow-listed fields (no status/admin fields)
    */
-  async updatePublicIntake(bookingRequestId: string, dto: PublicUpdateIntakeDto) {
+  async updatePublicIntake(
+    bookingRequestId: string,
+    dto: PublicUpdateIntakeDto,
+  ) {
     const booking = await this.prisma.bookingRequest.findUnique({
       where: { id: bookingRequestId },
       select: { id: true, status: true },

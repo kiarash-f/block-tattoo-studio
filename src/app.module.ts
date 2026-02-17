@@ -10,6 +10,9 @@ import { PublicModule } from './public/public.module';
 import { MediaModule } from './media/media.module';
 import { envValidationSchema } from './config/env.validation';
 import { BookingLinksModule } from './booking-links/booking-links.module';
+import { ArtistsModule } from './artists/artists.module';
+import { StudioStationsModule } from './studio-stations/studio-stations.module';
+import { BookingAssignmentsModule } from './booking-assignments/booking-assignments.module';
 
 @Module({
   imports: [
@@ -32,6 +35,9 @@ import { BookingLinksModule } from './booking-links/booking-links.module';
     MediaModule,
     HealthModule,
     BookingLinksModule,
+    ArtistsModule,
+    StudioStationsModule,
+    BookingAssignmentsModule,
   ],
 })
 export class AppModule {}

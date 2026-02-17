@@ -54,6 +54,23 @@ enum UploadKind {
   OTHER
 }
 
+enum ArtistStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum StationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AssignmentRole {
+  PRIMARY
+  SECONDARY
+  ASSISTANT
+  GUEST
+}
+
 model AdminUser {
   id              String           @id @default(uuid())
   email           String           @unique
@@ -120,6 +137,8 @@ model BookingRequest {
   reviewedByAdminId  String?
   reviewedByAdmin    AdminUser?         @relation(fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
   tokens             BookingLinkToken[]
+  assignments BookingAssignment[]
+
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -224,4 +243,69 @@ model BookingLinkToken {
 
   @@index([bookingRequestId])
   @@index([status, expiresAt])
+}
+
+model Artist {
+  id          String       @id @default(cuid())
+  studioId    String?      // keep nullable for single-shop now; later required
+  displayName String
+  handle      String?      @unique // optional: "alex-ink"
+  email       String?      @unique
+  phone       String?
+  status      ArtistStatus @default(ACTIVE)
+
+  // Optional future metadata
+  bio         String?
+  avatarUrl   String?
+
+  assignments BookingAssignment[]
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([studioId, status])
+  @@index([displayName])
+}
+
+model StudioStation {
+  id        String        @id @default(cuid())
+  studioId  String?
+  name      String        // e.g. "Station 1", "Room A"
+  code      String?       // e.g. "S1", "RM-A"
+  status    StationStatus @default(ACTIVE)
+
+  assignments BookingAssignment[]
+
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([studioId, status])
+  @@unique([studioId, name]) // avoids duplicates per studio (studioId can be null now)
+}
+
+model BookingAssignment {
+  id               String         @id @default(cuid())
+
+  bookingRequestId String
+  artistId         String
+  stationId        String?
+
+  role             AssignmentRole @default(PRIMARY)
+
+  // Placeholders for scheduling engine later (no calendar logic yet)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  note              String?
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  bookingRequest    BookingRequest  @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+  artist            Artist          @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  station           StudioStation?  @relation(fields: [stationId], references: [id], onDelete: SetNull)
+
+  @@index([bookingRequestId])
+  @@index([artistId])
+  @@index([stationId])
+  @@unique([bookingRequestId, artistId, role])
 }
