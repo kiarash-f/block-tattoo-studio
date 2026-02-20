@@ -6,27 +6,45 @@ import {
   Post,
   Query,
   UploadedFiles,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-
-import { PublicService } from './public.service';
-import { CreateBookingIntakeDto, IntakeSource } from './dto/booking-intake.dto';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiSecurity,
+  ApiTags,
+  ApiOkResponse,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
-@ApiTags('Public')
-@Controller('public')
-export class PublicController {
-  constructor(private readonly publicService: PublicService) {}
+import { KioskService } from './kiosk.service';
+import { KioskKeyGuard } from './guards/kiosk-key.guard';
+import {
+  CreateBookingIntakeDto,
+  IntakeSource,
+} from '../public/dto/booking-intake.dto';
+import { KioskBookingIntakeResponseDto } from './dto/kiosk-booking-intake.response.dto';
 
-  @Throttle({ default: { limit: 10, ttl: 60 } })
+@ApiTags('Kiosk')
+@ApiSecurity('kiosk-key')
+@UseGuards(KioskKeyGuard)
+@Controller('kiosk')
+export class KioskController {
+  constructor(private readonly kioskService: KioskService) {}
+
+  @Throttle({ default: { limit: 60, ttl: 60 } })
   @Post('booking-intake')
   @ApiOperation({
-    summary: 'Public booking intake (multipart: payload + files[])',
+    summary:
+      'Kiosk walk-in intake (multipart: payload + files[]) + returns QR upload URL',
+    description:
+      'Creates a WALK_IN booking request from the studio tablet and returns a tokenized upload URL that should be rendered as a QR code for the client to scan.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -39,14 +57,14 @@ export class PublicController {
           format: 'json',
           example: `{
   "client": {
-    "firstName": "John",
+    "firstName": "Jane",
     "lastName": "Doe",
-    "email": "john@example.com",
-    "phone": "123456789"
+    "phone": "015112345678"
   },
   "bookingRequest": {
-    "description": "Small tattoo on wrist",
-    "budgetRange": "B200_400"
+    "description": "Walk-in tattoo request",
+    "budgetRange": "B200_400",
+    "source": "DIRECT"
   },
   "medicalDeclaration": {
     "hasAllergies": false,
@@ -66,21 +84,19 @@ export class PublicController {
         },
         files: {
           type: 'array',
-          items: {
-            type: 'string',
-            format: 'binary',
-          },
+          items: { type: 'string', format: 'binary' },
         },
       },
     },
   })
+  @ApiOkResponse({ type: KioskBookingIntakeResponseDto })
   @UseInterceptors(
     FilesInterceptor('files', 10, {
-      storage: memoryStorage(), // ensures file.buffer exists
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB per file
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
     }),
   )
-  async bookingIntake(
+  async kioskBookingIntake(
     @Body('payload') payload: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Query() query: any,
@@ -89,9 +105,8 @@ export class PublicController {
     const payloadStr = typeof payload === 'string' ? payload.trim() : '';
     if (!payloadStr) throw new BadRequestException('Missing payload');
 
-    // strict mimetype validation
+    // same strict mimetype validation as public
     const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
-
     for (const f of files ?? []) {
       if (!allowedMimeTypes.has(f.mimetype)) {
         throw new BadRequestException(
@@ -109,16 +124,7 @@ export class PublicController {
 
     parsed.bookingRequest ??= {};
 
-    // bookingType default + public restriction
-    parsed.bookingRequest.bookingType ??= 'APPOINTMENT';
-
-    if (parsed.bookingRequest.bookingType === 'WALK_IN') {
-      throw new BadRequestException(
-        'WALK_IN can only be created in the studio (kiosk).',
-      );
-    }
-
-    // tracking fallbacks
+    // tracking fallbacks (same approach as public)
     parsed.bookingRequest.utmCampaign ??=
       query.utm_campaign ?? query.utmCampaign;
     parsed.bookingRequest.utmAdset ??= query.utm_adset ?? query.utmAdset;
@@ -145,6 +151,9 @@ export class PublicController {
       parsed.bookingRequest.studioChooses = true;
     }
 
+    // IMPORTANT: force walk-in
+    parsed.bookingRequest.bookingType = 'WALK_IN';
+
     const dto = plainToInstance(CreateBookingIntakeDto, parsed);
     const errors = validateSync(dto, {
       whitelist: true,
@@ -152,6 +161,6 @@ export class PublicController {
     });
     if (errors.length) throw new BadRequestException(errors);
 
-    return this.publicService.createBookingIntake(dto, files ?? []);
+    return this.kioskService.createWalkInIntakeWithQr(dto, files ?? []);
   }
 }

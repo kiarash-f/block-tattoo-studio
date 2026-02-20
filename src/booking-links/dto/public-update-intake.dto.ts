@@ -6,7 +6,7 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
-import { BudgetRange } from '@prisma/client'; // if you have it generated
+import { BudgetRange } from '@prisma/client';
 
 export class PublicUpdateIntakeDto {
   @ApiPropertyOptional()

@@ -4,8 +4,9 @@ import { PublicService } from './public.service';
 import { MediaModule } from '../media/media.module';
 
 @Module({
-  imports: [MediaModule], // ✅ gives PublicModule access to MediaService
+  imports: [MediaModule], 
   controllers: [PublicController],
   providers: [PublicService],
+  exports: [PublicService],
 })
 export class PublicModule {}

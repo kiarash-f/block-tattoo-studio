@@ -7,6 +7,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum BookingType {
+  APPOINTMENT
+  CONSULTATION
+  COVER_UP
+  WALK_IN
+}
+
 enum BookingLinkScope {
   INTAKE_CONTINUE
   UPLOAD
@@ -138,6 +145,7 @@ model BookingRequest {
   reviewedByAdmin    AdminUser?         @relation(fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
   tokens             BookingLinkToken[]
   assignments BookingAssignment[]
+  bookingType BookingType @default(APPOINTMENT)
 
 
   createdAt DateTime @default(now())
@@ -151,6 +159,8 @@ model BookingRequest {
   @@index([clientId, createdAt])
   @@index([createdAt])
   @@index([source, createdAt])
+  @@index([bookingType, createdAt])
+  @@index([source, bookingType, createdAt])
 }
 
 model MedicalDeclaration {

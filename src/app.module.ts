@@ -13,6 +13,7 @@ import { BookingLinksModule } from './booking-links/booking-links.module';
 import { ArtistsModule } from './artists/artists.module';
 import { StudioStationsModule } from './studio-stations/studio-stations.module';
 import { BookingAssignmentsModule } from './booking-assignments/booking-assignments.module';
+import { KioskModule } from './kiosk/kiosk.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { BookingAssignmentsModule } from './booking-assignments/booking-assignme
     ArtistsModule,
     StudioStationsModule,
     BookingAssignmentsModule,
+    KioskModule
   ],
 })
 export class AppModule {}

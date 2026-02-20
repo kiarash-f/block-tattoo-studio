@@ -31,6 +31,13 @@ export enum IntakeSource {
   OTHER = 'OTHER',
 }
 
+export enum BookingType {
+  APPOINTMENT = 'APPOINTMENT',
+  CONSULTATION = 'CONSULTATION',
+  COVER_UP = 'COVER_UP',
+  WALK_IN = 'WALK_IN',
+}
+
 export class ClientDto {
   @IsString()
   @IsNotEmpty()
@@ -126,6 +133,10 @@ export class ConsentDto {
 }
 
 export class BookingRequestDto {
+  @IsOptional()
+  @IsEnum(BookingType)
+  bookingType?: BookingType;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(2000)

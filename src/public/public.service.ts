@@ -10,6 +10,8 @@ import {
   UploadKind,
   IntakeSource,
 } from '@prisma/client';
+import { BookingType as PrismaBookingType } from '@prisma/client';
+import { BookingType as DtoBookingType } from './dto/booking-intake.dto';
 
 function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
   switch (v) {
@@ -29,6 +31,21 @@ function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
       return PrismaBudgetRange.OVER_2000;
     default:
       throw new Error(`Unsupported budgetRange: ${v as string}`);
+  }
+}
+function mapBookingTypeToPrisma(v?: DtoBookingType): PrismaBookingType | undefined {
+  if (!v) return undefined;
+  switch (v) {
+    case DtoBookingType.APPOINTMENT:
+      return PrismaBookingType.APPOINTMENT;
+    case DtoBookingType.CONSULTATION:
+      return PrismaBookingType.CONSULTATION;
+    case DtoBookingType.COVER_UP:
+      return PrismaBookingType.COVER_UP;
+    case DtoBookingType.WALK_IN:
+      return PrismaBookingType.WALK_IN;
+    default:
+      throw new Error(`Unsupported bookingType: ${v as string}`);
   }
 }
 
@@ -109,6 +126,7 @@ export class PublicService {
 
           description: bookingRequest.description,
           budgetRange: mapBudgetRangeToPrisma(bookingRequest.budgetRange),
+          bookingType: mapBookingTypeToPrisma(bookingRequest.bookingType),
 
           placement: bookingRequest.placement ?? undefined,
           sizeDescription: bookingRequest.sizeDescription ?? undefined,
