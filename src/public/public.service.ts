@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
 import {
@@ -9,9 +9,13 @@ import {
   BudgetRange as PrismaBudgetRange,
   UploadKind,
   IntakeSource,
+  PreferredTimeOfDay as PrismaPreferredTimeOfDay,
 } from '@prisma/client';
 import { BookingType as PrismaBookingType } from '@prisma/client';
-import { BookingType as DtoBookingType } from './dto/booking-intake.dto';
+import {
+  BookingType as DtoBookingType,
+  PreferredTimeOfDay as DtoPreferredTimeOfDay,
+} from './dto/booking-intake.dto';
 
 function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
   switch (v) {
@@ -33,7 +37,9 @@ function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
       throw new Error(`Unsupported budgetRange: ${v as string}`);
   }
 }
-function mapBookingTypeToPrisma(v?: DtoBookingType): PrismaBookingType | undefined {
+function mapBookingTypeToPrisma(
+  v?: DtoBookingType,
+): PrismaBookingType | undefined {
   if (!v) return undefined;
   switch (v) {
     case DtoBookingType.APPOINTMENT:
@@ -46,6 +52,23 @@ function mapBookingTypeToPrisma(v?: DtoBookingType): PrismaBookingType | undefin
       return PrismaBookingType.WALK_IN;
     default:
       throw new Error(`Unsupported bookingType: ${v as string}`);
+  }
+}
+function mapPreferredTimeOfDayToPrisma(
+  v?: DtoPreferredTimeOfDay,
+): PrismaPreferredTimeOfDay | undefined {
+  if (!v) return undefined;
+  switch (v) {
+    case DtoPreferredTimeOfDay.MORNING:
+      return PrismaPreferredTimeOfDay.MORNING;
+    case DtoPreferredTimeOfDay.AFTERNOON:
+      return PrismaPreferredTimeOfDay.AFTERNOON;
+    case DtoPreferredTimeOfDay.EVENING:
+      return PrismaPreferredTimeOfDay.EVENING;
+    case DtoPreferredTimeOfDay.ANY:
+      return PrismaPreferredTimeOfDay.ANY;
+    default:
+      throw new Error(`Unsupported preferredTimeOfDay: ${v as string}`);
   }
 }
 
@@ -112,6 +135,28 @@ export class PublicService {
       const preferredArtistName =
         bookingRequest.preferredArtistName?.trim() || undefined;
 
+      const preferredDateFrom = bookingRequest.preferredDateFrom
+        ? new Date(bookingRequest.preferredDateFrom)
+        : undefined;
+
+      const preferredDateTo = bookingRequest.preferredDateTo
+        ? new Date(bookingRequest.preferredDateTo)
+        : undefined;
+
+      if (preferredDateFrom && Number.isNaN(preferredDateFrom.getTime())) {
+        throw new Error('Invalid preferredDateFrom'); // or BadRequestException if you prefer
+      }
+      if (preferredDateTo && Number.isNaN(preferredDateTo.getTime())) {
+        throw new Error('Invalid preferredDateTo');
+      }
+      if (
+        preferredDateFrom &&
+        preferredDateTo &&
+        preferredDateTo < preferredDateFrom
+      ) {
+        throw new Error('preferredDateTo must be after preferredDateFrom');
+      }
+
       // 2) Booking request
       const studioChooses = preferredArtistName
         ? (bookingRequest.studioChooses ?? false)
@@ -123,6 +168,13 @@ export class PublicService {
       const br = await tx.bookingRequest.create({
         data: {
           clientId: clientRow.id,
+
+          preferredDateFrom: preferredDateFrom ?? undefined,
+          preferredDateTo: preferredDateTo ?? undefined,
+          preferredTimeOfDay: mapPreferredTimeOfDayToPrisma(
+            bookingRequest.preferredTimeOfDay,
+          ),
+          preferredDaysNote: bookingRequest.preferredDaysNote ?? undefined,
 
           description: bookingRequest.description,
           budgetRange: mapBudgetRangeToPrisma(bookingRequest.budgetRange),

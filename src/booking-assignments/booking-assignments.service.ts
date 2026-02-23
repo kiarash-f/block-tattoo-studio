@@ -1,3 +1,5 @@
+// src/booking-assignments/booking-assignments.service.ts
+
 import {
   BadRequestException,
   Injectable,
@@ -20,6 +22,7 @@ export class BookingAssignmentsService {
   async create(bookingRequestId: string, dto: CreateBookingAssignmentDto) {
     const role = dto.role ?? AssignmentRole.PRIMARY;
 
+    // ✅ startsAt can be provided alone; endsAt optional
     const { startsAt, endsAt } = this.parseAndValidateTimeRange(
       dto.startsAt,
       dto.endsAt,
@@ -87,7 +90,6 @@ export class BookingAssignmentsService {
   }
 
   async list(bookingRequestId: string) {
-    // verify bookingRequest exists (optional but nice for 404 vs empty)
     const exists = await this.prisma.bookingRequest.findUnique({
       where: { id: bookingRequestId },
       select: { id: true },
@@ -106,10 +108,13 @@ export class BookingAssignmentsService {
     assignmentId: string,
     dto: UpdateBookingAssignmentDto,
   ) {
-    const { startsAt, endsAt } = this.parseAndValidateTimeRange(
-      dto.startsAt,
-      dto.endsAt,
-    );
+    // ✅ Only parse/validate times if caller is actually changing them
+    const shouldValidateTimes =
+      dto.startsAt !== undefined || dto.endsAt !== undefined;
+
+    const parsedTimes = shouldValidateTimes
+      ? this.parseAndValidateTimeRange(dto.startsAt, dto.endsAt)
+      : null;
 
     return this.prisma.$transaction(async (tx) => {
       const assignment = await tx.bookingAssignment.findFirst({
@@ -136,7 +141,6 @@ export class BookingAssignmentsService {
 
       // Validate station if changed
       if (dto.stationId !== undefined && dto.stationId !== null) {
-        // dto.stationId may be '' from client; normalize
         if (dto.stationId === '') {
           throw new BadRequestException('stationId cannot be empty string');
         }
@@ -179,8 +183,11 @@ export class BookingAssignmentsService {
             : {}),
           ...(dto.role !== undefined ? { role: dto.role } : {}),
           ...(dto.note !== undefined ? { note: dto.note } : {}),
-          ...(dto.startsAt !== undefined || dto.endsAt !== undefined
-            ? { startsAt, endsAt }
+          ...(shouldValidateTimes
+            ? {
+                startsAt: parsedTimes!.startsAt,
+                endsAt: parsedTimes!.endsAt,
+              }
             : {}),
         },
         include: { artist: true, station: true },
@@ -203,29 +210,44 @@ export class BookingAssignmentsService {
     });
   }
 
+  /**
+   * ✅ New time rules:
+   * - neither startsAt nor endsAt provided => both null
+   * - startsAt only => OK (endsAt null)
+   * - endsAt only => reject
+   * - both provided => endsAt must be after startsAt
+   */
   private parseAndValidateTimeRange(
     startsAt?: string,
     endsAt?: string,
-  ): {
-    startsAt: Date | null;
-    endsAt: Date | null;
-  } {
+  ): { startsAt: Date | null; endsAt: Date | null } {
     const hasStart = startsAt !== undefined && startsAt !== null;
     const hasEnd = endsAt !== undefined && endsAt !== null;
 
     if (!hasStart && !hasEnd) return { startsAt: null, endsAt: null };
 
-    if (!startsAt || !endsAt) {
+    if (!hasStart && hasEnd) {
       throw new BadRequestException(
-        'startsAt and endsAt must be provided together',
+        'startsAt must be provided when endsAt is set',
       );
     }
 
-    const s = new Date(startsAt);
-    const e = new Date(endsAt);
+    // startsAt exists here
+    if (!startsAt) return { startsAt: null, endsAt: null };
 
-    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
-      throw new BadRequestException('Invalid startsAt or endsAt');
+    const s = new Date(startsAt);
+    if (Number.isNaN(s.getTime())) {
+      throw new BadRequestException('Invalid startsAt');
+    }
+
+    // startsAt only is allowed
+    if (!hasEnd || !endsAt) {
+      return { startsAt: s, endsAt: null };
+    }
+
+    const e = new Date(endsAt);
+    if (Number.isNaN(e.getTime())) {
+      throw new BadRequestException('Invalid endsAt');
     }
     if (e <= s) {
       throw new BadRequestException('endsAt must be after startsAt');

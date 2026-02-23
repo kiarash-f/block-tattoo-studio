@@ -117,6 +117,35 @@ export class PublicController {
         'WALK_IN can only be created in the studio (kiosk).',
       );
     }
+    // ✅ preferred date range validation (optional fields)
+    if (
+      parsed.bookingRequest.preferredDateFrom ||
+      parsed.bookingRequest.preferredDateTo
+    ) {
+      const from = parsed.bookingRequest.preferredDateFrom
+        ? new Date(parsed.bookingRequest.preferredDateFrom)
+        : null;
+
+      const to = parsed.bookingRequest.preferredDateTo
+        ? new Date(parsed.bookingRequest.preferredDateTo)
+        : null;
+
+      if (from && Number.isNaN(from.getTime())) {
+        throw new BadRequestException('Invalid preferredDateFrom');
+      }
+      if (to && Number.isNaN(to.getTime())) {
+        throw new BadRequestException('Invalid preferredDateTo');
+      }
+      if (from && to && to < from) {
+        throw new BadRequestException(
+          'preferredDateTo must be after preferredDateFrom',
+        );
+      }
+
+      // (optional) normalize to ISO string to keep consistency
+      if (from) parsed.bookingRequest.preferredDateFrom = from.toISOString();
+      if (to) parsed.bookingRequest.preferredDateTo = to.toISOString();
+    }
 
     // tracking fallbacks
     parsed.bookingRequest.utmCampaign ??=

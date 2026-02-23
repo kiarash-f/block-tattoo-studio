@@ -38,6 +38,13 @@ export enum BookingType {
   WALK_IN = 'WALK_IN',
 }
 
+export enum PreferredTimeOfDay {
+  MORNING = 'MORNING',
+  AFTERNOON = 'AFTERNOON',
+  EVENING = 'EVENING',
+  ANY = 'ANY',
+}
+
 export class ClientDto {
   @IsString()
   @IsNotEmpty()
@@ -204,6 +211,24 @@ export class BookingRequestDto {
   @IsString()
   @MaxLength(300)
   landingPath?: string;
+
+    // scheduling preferences (optional)
+  @IsOptional()
+  @IsDateString()
+  preferredDateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  preferredDateTo?: string;
+
+  @IsOptional()
+  @IsEnum(PreferredTimeOfDay)
+  preferredTimeOfDay?: PreferredTimeOfDay;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  preferredDaysNote?: string;
 }
 
 export class CreateBookingIntakeDto {

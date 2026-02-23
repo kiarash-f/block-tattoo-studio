@@ -14,6 +14,13 @@ enum BookingType {
   WALK_IN
 }
 
+enum PreferredTimeOfDay {
+  MORNING
+  AFTERNOON
+  EVENING
+  ANY
+}
+
 enum BookingLinkScope {
   INTAKE_CONTINUE
   UPLOAD
@@ -34,6 +41,7 @@ enum BookingStatus {
   APPROVED
   REJECTED
   CANCELLED
+  COMPLETED
 }
 
 enum BudgetRange {
@@ -76,6 +84,13 @@ enum AssignmentRole {
   SECONDARY
   ASSISTANT
   GUEST
+}
+
+enum CancelReason {
+  CLIENT_CANCELLED
+  NO_SHOW
+  STUDIO_CANCELLED
+  OTHER
 }
 
 model AdminUser {
@@ -150,10 +165,19 @@ model BookingRequest {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  approvedAt   DateTime?
+  completedAt  DateTime?
+  cancelledAt  DateTime?
+  cancelReason CancelReason?
 
   medicalDeclaration MedicalDeclaration?
   consent            Consent?
   uploads            Upload[]
+
+  preferredDateFrom   DateTime?
+  preferredDateTo     DateTime?
+  preferredTimeOfDay  PreferredTimeOfDay?
+  preferredDaysNote   String?
 
   @@index([status, createdAt])
   @@index([clientId, createdAt])
@@ -161,6 +185,13 @@ model BookingRequest {
   @@index([source, createdAt])
   @@index([bookingType, createdAt])
   @@index([source, bookingType, createdAt])
+  @@index([approvedAt])
+  @@index([completedAt])
+  @@index([cancelledAt])
+  @@index([status, approvedAt])
+  @@index([status, completedAt])
+    @@index([preferredDateFrom])
+  @@index([preferredDateTo])
 }
 
 model MedicalDeclaration {

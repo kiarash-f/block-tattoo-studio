@@ -5,8 +5,9 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  IsDateString,
 } from 'class-validator';
-import { BudgetRange } from '@prisma/client';
+import { BudgetRange, PreferredTimeOfDay } from '@prisma/client';
 
 export class PublicUpdateIntakeDto {
   @ApiPropertyOptional()
@@ -55,5 +56,26 @@ export class PublicUpdateIntakeDto {
   @IsBoolean()
   studioChooses?: boolean;
 
-  // We'll add medicalDeclaration/consent nested DTOs right after you paste their schemas
+  @ApiPropertyOptional({ example: '2026-03-01T00:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  preferredDateFrom?: string;
+
+  @ApiPropertyOptional({ example: '2026-03-31T00:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  preferredDateTo?: string;
+
+  @ApiPropertyOptional({ enum: PreferredTimeOfDay })
+  @IsOptional()
+  @IsEnum(PreferredTimeOfDay)
+  preferredTimeOfDay?: PreferredTimeOfDay;
+
+  @ApiPropertyOptional({
+    description: 'Extra notes about preferred days/times',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  preferredDaysNote?: string;
 }

@@ -4,18 +4,23 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { BookingStatus, Prisma } from '@prisma/client';
+import {
+  BookingStatus,
+  Prisma,
+  CancelReason,
+  AssignmentRole,
+} from '@prisma/client';
 import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake.dto';
 
 const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   NEW: ['IN_REVIEW', 'NEEDS_INFO', 'APPROVED', 'REJECTED'],
   IN_REVIEW: ['NEEDS_INFO', 'APPROVED', 'REJECTED'],
   NEEDS_INFO: ['IN_REVIEW', 'APPROVED', 'REJECTED'],
-  APPROVED: ['CANCELLED'],
+  APPROVED: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
   REJECTED: [],
   CANCELLED: [],
 };
-
 
 const REVIEWED_STATUSES: BookingStatus[] = [
   'IN_REVIEW',
@@ -72,7 +77,6 @@ export class BookingsService {
   }
 
   async detail(id: string) {
-   
     return this.prisma.bookingRequest.findUniqueOrThrow({
       where: { id },
       include: {
@@ -98,10 +102,9 @@ export class BookingsService {
       status: BookingStatus;
       adminNotes?: string;
       internalStatusNote?: string;
+      cancelReason?: CancelReason;
     },
   ) {
-    // Load current status so we can validate transitions
-    // If record doesn't exist, findUniqueOrThrow will trigger Prisma P2025 (handled by your filter)
     const current = await this.prisma.bookingRequest.findUniqueOrThrow({
       where: { id },
       select: { status: true },
@@ -117,6 +120,64 @@ export class BookingsService {
     }
 
     const shouldSetReviewed = REVIEWED_STATUSES.includes(next);
+    const now = new Date();
+
+    // ✅ OPTIONAL guard: for COMPLETED or NO_SHOW, ensure appointment startsAt is in the past
+    if (
+      next === BookingStatus.COMPLETED ||
+      (next === BookingStatus.CANCELLED &&
+        data.cancelReason === CancelReason.NO_SHOW)
+    ) {
+      const primary = await this.prisma.bookingAssignment.findFirst({
+        where: {
+          bookingRequestId: id,
+          role: AssignmentRole.PRIMARY,
+        },
+        select: { startsAt: true },
+      });
+
+      if (!primary?.startsAt) {
+        throw new BadRequestException(
+          'Cannot complete/no-show: PRIMARY assignment startsAt is missing',
+        );
+      }
+
+      if (primary.startsAt > now) {
+        throw new BadRequestException(
+          'Cannot complete/no-show before the appointment time',
+        );
+      }
+    }
+
+    // ✅ enforce cancelReason when cancelling
+    if (next === BookingStatus.CANCELLED) {
+      if (!data.cancelReason) {
+        // choose one:
+        // throw new BadRequestException('cancelReason is required when status=CANCELLED');
+        data.cancelReason = CancelReason.OTHER; // or default NO_SHOW if you prefer
+      }
+    }
+
+    // ✅ build event timestamp updates
+    const eventFields: Prisma.BookingRequestUpdateInput = {};
+
+    if (next === BookingStatus.APPROVED) {
+      eventFields.approvedAt = now;
+    }
+
+    if (next === BookingStatus.COMPLETED) {
+      eventFields.completedAt = now;
+      // optional cleanup
+      eventFields.cancelledAt = null;
+      eventFields.cancelReason = null;
+    }
+
+    if (next === BookingStatus.CANCELLED) {
+      eventFields.cancelledAt = now;
+      eventFields.cancelReason = data.cancelReason;
+      // optional cleanup
+      eventFields.completedAt = null;
+    }
 
     return this.prisma.bookingRequest.update({
       where: { id },
@@ -125,11 +186,12 @@ export class BookingsService {
         adminNotes: data.adminNotes,
         internalStatusNote: data.internalStatusNote,
 
-        // only set review fields when status is considered "reviewed"
+        ...eventFields,
+
         ...(shouldSetReviewed
           ? {
-              reviewedAt: new Date(),
-              reviewedByAdminId: adminId,
+              reviewedAt: now,
+              reviewedByAdmin: { connect: { id: adminId } },
             }
           : {}),
       },
@@ -153,6 +215,11 @@ export class BookingsService {
         description: true,
         budgetRange: true,
         referencesNotes: true,
+
+        preferredDateFrom: true,
+        preferredDateTo: true,
+        preferredTimeOfDay: true,
+        preferredDaysNote: true,
 
         preferredArtistName: true,
         studioChooses: true,
@@ -203,6 +270,30 @@ export class BookingsService {
       );
     }
 
+    const preferredDateFrom = dto.preferredDateFrom
+      ? new Date(dto.preferredDateFrom)
+      : undefined;
+
+    const preferredDateTo = dto.preferredDateTo
+      ? new Date(dto.preferredDateTo)
+      : undefined;
+
+    if (preferredDateFrom && Number.isNaN(preferredDateFrom.getTime())) {
+      throw new BadRequestException('Invalid preferredDateFrom');
+    }
+    if (preferredDateTo && Number.isNaN(preferredDateTo.getTime())) {
+      throw new BadRequestException('Invalid preferredDateTo');
+    }
+    if (
+      preferredDateFrom &&
+      preferredDateTo &&
+      preferredDateTo < preferredDateFrom
+    ) {
+      throw new BadRequestException(
+        'preferredDateTo must be after preferredDateFrom',
+      );
+    }
+
     await this.prisma.bookingRequest.update({
       where: { id: bookingRequestId },
       data: {
@@ -214,6 +305,10 @@ export class BookingsService {
         referencesNotes: dto.referencesNotes,
         preferredArtistName: dto.preferredArtistName,
         studioChooses: dto.studioChooses,
+        preferredDateFrom,
+        preferredDateTo,
+        preferredTimeOfDay: dto.preferredTimeOfDay,
+        preferredDaysNote: dto.preferredDaysNote,
       },
     });
 
