@@ -4,18 +4,16 @@ import { MediaService } from '../media/media.service';
 import {
   CreateBookingIntakeDto,
   BudgetRange as DtoBudgetRange,
+  BookingType as DtoBookingType,
+  PreferredTimeOfDay as DtoPreferredTimeOfDay,
 } from './dto/booking-intake.dto';
 import {
   BudgetRange as PrismaBudgetRange,
   UploadKind,
   IntakeSource,
   PreferredTimeOfDay as PrismaPreferredTimeOfDay,
+  BookingType as PrismaBookingType,
 } from '@prisma/client';
-import { BookingType as PrismaBookingType } from '@prisma/client';
-import {
-  BookingType as DtoBookingType,
-  PreferredTimeOfDay as DtoPreferredTimeOfDay,
-} from './dto/booking-intake.dto';
 
 function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
   switch (v) {
@@ -34,9 +32,10 @@ function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
     case DtoBudgetRange.OVER_2000:
       return PrismaBudgetRange.OVER_2000;
     default:
-      throw new Error(`Unsupported budgetRange: ${v as string}`);
+      throw new BadRequestException(`Unsupported budgetRange: ${v as string}`);
   }
 }
+
 function mapBookingTypeToPrisma(
   v?: DtoBookingType,
 ): PrismaBookingType | undefined {
@@ -51,9 +50,10 @@ function mapBookingTypeToPrisma(
     case DtoBookingType.WALK_IN:
       return PrismaBookingType.WALK_IN;
     default:
-      throw new Error(`Unsupported bookingType: ${v as string}`);
+      throw new BadRequestException(`Unsupported bookingType: ${v as string}`);
   }
 }
+
 function mapPreferredTimeOfDayToPrisma(
   v?: DtoPreferredTimeOfDay,
 ): PrismaPreferredTimeOfDay | undefined {
@@ -68,8 +68,19 @@ function mapPreferredTimeOfDayToPrisma(
     case DtoPreferredTimeOfDay.ANY:
       return PrismaPreferredTimeOfDay.ANY;
     default:
-      throw new Error(`Unsupported preferredTimeOfDay: ${v as string}`);
+      throw new BadRequestException(
+        `Unsupported preferredTimeOfDay: ${v as string}`,
+      );
   }
+}
+
+function parseOptionalDate(name: string, value?: string): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new BadRequestException(`Invalid ${name}`);
+  }
+  return d;
 }
 
 @Injectable()
@@ -79,12 +90,21 @@ export class PublicService {
     private readonly media: MediaService,
   ) {}
 
+  /**
+   * Public intake:
+   * - Creates/updates Client
+   * - Creates BookingRequest
+   * - ✅ medicalDeclaration + consent are OPTIONAL now (filled later in-studio)
+   * - Optionally uploads REFERENCE images (files[])
+   */
   async createBookingIntake(
     dto: CreateBookingIntakeDto,
     files: Express.Multer.File[],
   ) {
     return this.prisma.$transaction(async (tx) => {
-      const { client, bookingRequest, medicalDeclaration, consent } = dto;
+      const { client, bookingRequest } = dto;
+      const medicalDeclaration = dto.medicalDeclaration;
+      const consent = dto.consent;
 
       // 1) Find existing client by email, else phone
       let existing: {
@@ -107,6 +127,7 @@ export class PublicService {
         });
       }
 
+      // Upsert-ish behavior for client
       const clientRow = existing
         ? await tx.client.update({
             where: { id: existing.id },
@@ -132,32 +153,30 @@ export class PublicService {
             },
           });
 
+      // 2) Normalize & validate booking request fields
       const preferredArtistName =
         bookingRequest.preferredArtistName?.trim() || undefined;
 
-      const preferredDateFrom = bookingRequest.preferredDateFrom
-        ? new Date(bookingRequest.preferredDateFrom)
-        : undefined;
+      const preferredDateFrom = parseOptionalDate(
+        'preferredDateFrom',
+        bookingRequest.preferredDateFrom,
+      );
+      const preferredDateTo = parseOptionalDate(
+        'preferredDateTo',
+        bookingRequest.preferredDateTo,
+      );
 
-      const preferredDateTo = bookingRequest.preferredDateTo
-        ? new Date(bookingRequest.preferredDateTo)
-        : undefined;
-
-      if (preferredDateFrom && Number.isNaN(preferredDateFrom.getTime())) {
-        throw new Error('Invalid preferredDateFrom'); // or BadRequestException if you prefer
-      }
-      if (preferredDateTo && Number.isNaN(preferredDateTo.getTime())) {
-        throw new Error('Invalid preferredDateTo');
-      }
       if (
         preferredDateFrom &&
         preferredDateTo &&
         preferredDateTo < preferredDateFrom
       ) {
-        throw new Error('preferredDateTo must be after preferredDateFrom');
+        throw new BadRequestException(
+          'preferredDateTo must be after preferredDateFrom',
+        );
       }
 
-      // 2) Booking request
+      // If client picked an artist, studioChooses can be false; otherwise default true
       const studioChooses = preferredArtistName
         ? (bookingRequest.studioChooses ?? false)
         : true;
@@ -165,62 +184,76 @@ export class PublicService {
       const source: IntakeSource =
         (bookingRequest.source as IntakeSource) ?? IntakeSource.DIRECT;
 
+      // 3) Build Prisma create data
+      // ✅ medicalDeclaration/consent are conditional (optional)
+      const brCreateData: any = {
+        clientId: clientRow.id,
+
+        preferredDateFrom: preferredDateFrom ?? undefined,
+        preferredDateTo: preferredDateTo ?? undefined,
+        preferredTimeOfDay: mapPreferredTimeOfDayToPrisma(
+          bookingRequest.preferredTimeOfDay,
+        ),
+        preferredDaysNote: bookingRequest.preferredDaysNote ?? undefined,
+
+        description: bookingRequest.description,
+        budgetRange: mapBudgetRangeToPrisma(bookingRequest.budgetRange),
+        bookingType: mapBookingTypeToPrisma(bookingRequest.bookingType),
+
+        placement: bookingRequest.placement ?? undefined,
+        sizeDescription: bookingRequest.sizeDescription ?? undefined,
+        styleNotes: bookingRequest.styleNotes ?? undefined,
+        referencesNotes: bookingRequest.referencesNotes ?? undefined,
+
+        preferredArtistName,
+        studioChooses,
+
+        source,
+        utmCampaign: bookingRequest.utmCampaign ?? undefined,
+        utmAdset: bookingRequest.utmAdset ?? undefined,
+        utmAd: bookingRequest.utmAd ?? undefined,
+        referrer: bookingRequest.referrer ?? undefined,
+        landingPath: bookingRequest.landingPath ?? undefined,
+      };
+
+      if (medicalDeclaration) {
+        brCreateData.medicalDeclaration = {
+          create: {
+            hasAllergies: medicalDeclaration.hasAllergies,
+            allergiesDetails: medicalDeclaration.allergiesDetails ?? undefined,
+            hasSkinCondition: medicalDeclaration.hasSkinCondition,
+            skinConditionDetails:
+              medicalDeclaration.skinConditionDetails ?? undefined,
+            isPregnantOrNursing: medicalDeclaration.isPregnantOrNursing,
+            hasHeartCondition: medicalDeclaration.hasHeartCondition,
+            hasDiabetes: medicalDeclaration.hasDiabetes,
+            takesBloodThinners: medicalDeclaration.takesBloodThinners,
+            takesMedication: medicalDeclaration.takesMedication,
+            medicationDetails:
+              medicalDeclaration.medicationDetails ?? undefined,
+            otherNotes: medicalDeclaration.otherNotes ?? undefined,
+          },
+        };
+      }
+
+      if (consent) {
+        brCreateData.consent = {
+          create: {
+            isAdultConfirmed: consent.isAdultConfirmed,
+            termsAccepted: consent.termsAccepted,
+            privacyAccepted: consent.privacyAccepted,
+            fullName: consent.fullName ?? undefined,
+            signedAt: consent.signedAt ? new Date(consent.signedAt) : undefined,
+          },
+        };
+      }
+
+      // 4) Create booking request
       const br = await tx.bookingRequest.create({
-        data: {
-          clientId: clientRow.id,
-
-          preferredDateFrom: preferredDateFrom ?? undefined,
-          preferredDateTo: preferredDateTo ?? undefined,
-          preferredTimeOfDay: mapPreferredTimeOfDayToPrisma(
-            bookingRequest.preferredTimeOfDay,
-          ),
-          preferredDaysNote: bookingRequest.preferredDaysNote ?? undefined,
-
-          description: bookingRequest.description,
-          budgetRange: mapBudgetRangeToPrisma(bookingRequest.budgetRange),
-          bookingType: mapBookingTypeToPrisma(bookingRequest.bookingType),
-
-          placement: bookingRequest.placement ?? undefined,
-          sizeDescription: bookingRequest.sizeDescription ?? undefined,
-          styleNotes: bookingRequest.styleNotes ?? undefined,
-          referencesNotes: bookingRequest.referencesNotes ?? undefined,
-
-          preferredArtistName,
-          studioChooses,
-
-          source,
-          utmCampaign: bookingRequest.utmCampaign ?? undefined,
-          utmAdset: bookingRequest.utmAdset ?? undefined,
-          utmAd: bookingRequest.utmAd ?? undefined,
-          referrer: bookingRequest.referrer ?? undefined,
-          landingPath: bookingRequest.landingPath ?? undefined,
-
-          medicalDeclaration: {
-            create: {
-              ...medicalDeclaration,
-              allergiesDetails:
-                medicalDeclaration.allergiesDetails ?? undefined,
-              skinConditionDetails:
-                medicalDeclaration.skinConditionDetails ?? undefined,
-              medicationDetails:
-                medicalDeclaration.medicationDetails ?? undefined,
-              otherNotes: medicalDeclaration.otherNotes ?? undefined,
-            },
-          },
-
-          consent: {
-            create: {
-              ...consent,
-              fullName: consent.fullName ?? undefined,
-              signedAt: consent.signedAt
-                ? new Date(consent.signedAt)
-                : undefined,
-            },
-          },
-        },
+        data: brCreateData,
       });
 
-      // 3) Uploads
+      // 5) Uploads (optional)
       if (files?.length) {
         for (const f of files) {
           if (!f?.buffer) continue; // should exist due to memoryStorage()

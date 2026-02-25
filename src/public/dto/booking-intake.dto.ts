@@ -212,7 +212,7 @@ export class BookingRequestDto {
   @MaxLength(300)
   landingPath?: string;
 
-    // scheduling preferences (optional)
+  // scheduling preferences (optional)
   @IsOptional()
   @IsDateString()
   preferredDateFrom?: string;
@@ -240,10 +240,12 @@ export class CreateBookingIntakeDto {
   @Type(() => BookingRequestDto)
   bookingRequest: BookingRequestDto;
 
+  @IsOptional()
   @ValidateNested()
   @Type(() => MedicalDeclarationDto)
   medicalDeclaration: MedicalDeclarationDto;
 
+  @IsOptional()
   @ValidateNested()
   @Type(() => ConsentDto)
   consent: ConsentDto;

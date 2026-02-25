@@ -7,6 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//
+// Enums
+//
 enum BookingType {
   APPOINTMENT
   CONSULTATION
@@ -93,30 +96,40 @@ enum CancelReason {
   OTHER
 }
 
+//
+// Models
+//
 model AdminUser {
-  id              String           @id @default(uuid())
-  email           String           @unique
-  passwordHash    String
-  displayName     String?
-  isActive        Boolean          @default(true)
-  lastLoginAt     DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  bookingRequests BookingRequest[]
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String?
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // BookingRequest relations 
+  reviewedBookingRequests   BookingRequest[] @relation("BookingReviewedBy")
+  checkedInBookingRequests  BookingRequest[] @relation("BookingCheckedInBy")
+
+  // Medical/Consent submission audit
+  medicalDeclarationsSubmitted MedicalDeclaration[] @relation("MedicalSubmittedBy")
+  consentsSubmitted            Consent[]            @relation("ConsentSubmittedBy")
 
   @@index([isActive])
 }
 
 model Client {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   firstName String
   lastName  String
   email     String?
   phone     String?
   instagram String?
   birthday  DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   bookingRequests BookingRequest[]
 
@@ -140,7 +153,7 @@ model BookingRequest {
   budgetRange     BudgetRange
   referencesNotes String?
 
-  // artist selection (Phase 1: no Artist model yet)
+  // artist selection / preference
   preferredArtistName String?
   studioChooses       Boolean @default(true)
 
@@ -157,12 +170,20 @@ model BookingRequest {
   internalStatusNote String?
   reviewedAt         DateTime?
   reviewedByAdminId  String?
-  reviewedByAdmin    AdminUser?         @relation(fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
-  tokens             BookingLinkToken[]
+  reviewedByAdmin    AdminUser? @relation("BookingReviewedBy", fields: [reviewedByAdminId], references: [id], onDelete: SetNull)
+
+  // ✅ in-studio (admin-only)
+  checkedInAt         DateTime?
+  checkedInByAdminId  String?
+  checkedInByAdmin    AdminUser? @relation("BookingCheckedInBy", fields: [checkedInByAdminId], references: [id], onDelete: SetNull)
+  inStudioCompletedAt DateTime?
+
+  // scheduling & links
+  tokens      BookingLinkToken[]
   assignments BookingAssignment[]
   bookingType BookingType @default(APPOINTMENT)
 
-
+  // lifecycle timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   approvedAt   DateTime?
@@ -170,10 +191,14 @@ model BookingRequest {
   cancelledAt  DateTime?
   cancelReason CancelReason?
 
+  // in-studio forms (optional; filled in studio)
   medicalDeclaration MedicalDeclaration?
   consent            Consent?
-  uploads            Upload[]
 
+  // uploads (references etc.)
+  uploads Upload[]
+
+  // preferred time window (intake)
   preferredDateFrom   DateTime?
   preferredDateTo     DateTime?
   preferredTimeOfDay  PreferredTimeOfDay?
@@ -190,8 +215,10 @@ model BookingRequest {
   @@index([cancelledAt])
   @@index([status, approvedAt])
   @@index([status, completedAt])
-    @@index([preferredDateFrom])
+  @@index([preferredDateFrom])
   @@index([preferredDateTo])
+  @@index([checkedInAt])
+  @@index([inStudioCompletedAt])
 }
 
 model MedicalDeclaration {
@@ -199,7 +226,7 @@ model MedicalDeclaration {
   bookingRequestId String         @unique
   bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
 
-  // keep it flexible but structured enough
+  // medical questionnaire (filled in studio)
   hasAllergies         Boolean
   allergiesDetails     String?
   hasSkinCondition     Boolean
@@ -212,6 +239,11 @@ model MedicalDeclaration {
   medicationDetails    String?
   otherNotes           String?
 
+  // audit
+  submittedAt        DateTime?
+  submittedByAdminId String?
+  submittedByAdmin   AdminUser? @relation("MedicalSubmittedBy", fields: [submittedByAdminId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -221,14 +253,19 @@ model Consent {
   bookingRequestId String         @unique
   bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
 
-  // legal flags
+  // legal flags (filled in studio)
   isAdultConfirmed Boolean
   termsAccepted    Boolean
   privacyAccepted  Boolean
 
-  // signature/identity (optional in Phase 1)
+  // signature/identity (optional)
   fullName String?
   signedAt DateTime?
+
+  // audit
+  submittedAt        DateTime?
+  submittedByAdminId String?
+  submittedByAdmin   AdminUser? @relation("ConsentSubmittedBy", fields: [submittedByAdminId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -265,7 +302,7 @@ model BookingLinkToken {
   secretHash String
 
   scopes BookingLinkScope[]
-  status BookingLinkStatus  @default(ACTIVE)
+  status BookingLinkStatus @default(ACTIVE)
 
   expiresAt DateTime
 
@@ -277,10 +314,10 @@ model BookingLinkToken {
   revokedAt    DateTime?
   revokeReason String?
 
-  //who generated it
+  // who generated it (kept as id only for now)
   createdByAdminId String?
-  // createdByAdmin   AdminUser?       @relation(fields: [createdByAdminId], references: [id], onDelete: SetNull)
-  createdUploads   Upload[]
+
+  createdUploads Upload[]
 
   @@index([bookingRequestId])
   @@index([status, expiresAt])
@@ -296,54 +333,54 @@ model Artist {
   status      ArtistStatus @default(ACTIVE)
 
   // Optional future metadata
-  bio         String?
-  avatarUrl   String?
+  bio       String?
+  avatarUrl String?
 
   assignments BookingAssignment[]
 
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([studioId, status])
   @@index([displayName])
 }
 
 model StudioStation {
-  id        String        @id @default(cuid())
-  studioId  String?
-  name      String        // e.g. "Station 1", "Room A"
-  code      String?       // e.g. "S1", "RM-A"
-  status    StationStatus @default(ACTIVE)
+  id       String        @id @default(cuid())
+  studioId String?
+  name     String        // e.g. "Station 1", "Room A"
+  code     String?       // e.g. "S1", "RM-A"
+  status   StationStatus @default(ACTIVE)
 
   assignments BookingAssignment[]
 
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([studioId, status])
   @@unique([studioId, name]) // avoids duplicates per studio (studioId can be null now)
 }
 
 model BookingAssignment {
-  id               String         @id @default(cuid())
+  id String @id @default(cuid())
 
   bookingRequestId String
   artistId         String
   stationId        String?
 
-  role             AssignmentRole @default(PRIMARY)
+  role AssignmentRole @default(PRIMARY)
 
-  // Placeholders for scheduling engine later (no calendar logic yet)
-  startsAt          DateTime?
-  endsAt            DateTime?
-  note              String?
+  // scheduling (startsAt is used for appointment time)
+  startsAt DateTime?
+  endsAt   DateTime?
+  note     String?
 
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  bookingRequest    BookingRequest  @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
-  artist            Artist          @relation(fields: [artistId], references: [id], onDelete: Restrict)
-  station           StudioStation?  @relation(fields: [stationId], references: [id], onDelete: SetNull)
+  bookingRequest BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+  artist         Artist         @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  station        StudioStation? @relation(fields: [stationId], references: [id], onDelete: SetNull)
 
   @@index([bookingRequestId])
   @@index([artistId])
