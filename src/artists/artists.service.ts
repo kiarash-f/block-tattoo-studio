@@ -3,27 +3,214 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, ArtistStatus } from '@prisma/client';
+import { Prisma, ArtistStatus, PublishStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MediaService } from '../media/media.service';
+
 import { CreateArtistDto } from './dto/create-artist.dto';
 import { UpdateArtistDto } from './dto/update-artist.dto';
 import { ListArtistsDto } from './dto/list-artists.dto';
+import { AdminCreateArtistMultipartDto } from './dto/admin-create-artist.multipart.dto';
+import { AdminUpdateArtistMultipartDto } from './dto/admin-update-artist.multipart.dto';
+import { WorkMetaDto } from './dto/artist-work-meta.dto';
+import { slugify } from './utils/slugify';
 
 @Injectable()
 export class ArtistsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: MediaService,
+  ) {}
 
+  // -----------------------------
+  // Admin: Create with cover + works (multipart)
+  // Auto-publish uploaded works
+  // -----------------------------
+  async createWithMedia(
+    dto: AdminCreateArtistMultipartDto,
+    files: { cover?: Express.Multer.File[]; works?: Express.Multer.File[] },
+  ) {
+    const slug = this.resolveSlug(dto.slug, dto.handle, dto.displayName);
+
+    const coverFile = files.cover?.[0];
+    const coverUrl = coverFile
+      ? (await this.uploadToCloudinary(coverFile, 'artists/covers')).url
+      : undefined;
+
+    const workFiles = files.works ?? [];
+    const worksMeta = this.parseWorksMeta(workFiles.length, dto.worksMeta);
+
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertUniqueFields(
+        {
+          slug,
+          handle: dto.handle?.trim(),
+          email: dto.email?.trim()?.toLowerCase(),
+        },
+        undefined,
+        tx,
+      );
+
+      const artist = await tx.artist.create({
+        data: {
+          displayName: dto.displayName.trim(),
+          handle: dto.handle?.trim(),
+          slug,
+          email: dto.email?.trim()?.toLowerCase(),
+          phone: dto.phone?.trim(),
+          status: dto.status ?? ArtistStatus.ACTIVE,
+          bio: dto.bio,
+          avatarUrl: dto.avatarUrl,
+          coverUrl,
+        },
+      });
+
+      if (workFiles.length > 0) {
+        const uploaded = await Promise.all(
+          workFiles.map((f) => this.uploadToCloudinary(f, 'artists/works')),
+        );
+
+        const createData: Prisma.ArtistWorkCreateManyInput[] = uploaded.map(
+          (u, idx) => {
+            const meta = worksMeta[idx];
+            return {
+              artistId: artist.id,
+              title:
+                meta?.title?.trim() ||
+                this.safeTitleFromFilename(workFiles[idx]?.originalname) ||
+                'Untitled',
+              coverUrl: u.url,
+              tags: this.normalizeTags(meta?.tags),
+
+              // AUTO-PUBLISH
+              status: PublishStatus.PUBLISHED,
+              publishedAt: now,
+            };
+          },
+        );
+
+        await tx.artistWork.createMany({ data: createData });
+      }
+
+      return artist;
+    });
+  }
+
+  // -----------------------------
+  // Admin: Update with optional cover + optional appended works
+  // Auto-publish uploaded works
+  // -----------------------------
+  async updateWithMedia(
+    id: string,
+    dto: AdminUpdateArtistMultipartDto,
+    files: { cover?: Express.Multer.File[]; works?: Express.Multer.File[] },
+  ) {
+    const existing = await this.findOne(id);
+
+    const nextSlug =
+      dto.slug !== undefined
+        ? this.resolveSlug(
+            dto.slug,
+            dto.handle ?? existing.handle ?? undefined,
+            dto.displayName ?? existing.displayName,
+          )
+        : existing.slug ??
+          this.resolveSlug(
+            undefined,
+            dto.handle ?? existing.handle ?? undefined,
+            dto.displayName ?? existing.displayName,
+          );
+
+    const coverFile = files.cover?.[0];
+    const coverUrl = coverFile
+      ? (await this.uploadToCloudinary(coverFile, 'artists/covers')).url
+      : undefined;
+
+    const workFiles = files.works ?? [];
+    const worksMeta = this.parseWorksMeta(workFiles.length, dto.worksMeta);
+
+    const data: Prisma.ArtistUpdateInput = {
+      ...(dto.displayName !== undefined
+        ? { displayName: dto.displayName.trim() }
+        : {}),
+      ...(dto.handle !== undefined ? { handle: dto.handle?.trim() } : {}),
+      ...(dto.slug !== undefined || !existing.slug ? { slug: nextSlug } : {}),
+      ...(dto.email !== undefined
+        ? { email: dto.email?.trim()?.toLowerCase() }
+        : {}),
+      ...(dto.phone !== undefined ? { phone: dto.phone?.trim() } : {}),
+      ...(dto.status !== undefined ? { status: dto.status } : {}),
+      ...(dto.bio !== undefined ? { bio: dto.bio } : {}),
+      ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
+      ...(coverUrl ? { coverUrl } : {}),
+    };
+
+    const now = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      const handle = typeof data.handle === 'string' ? data.handle : undefined;
+      const email = typeof data.email === 'string' ? data.email : undefined;
+      const slug = typeof data.slug === 'string' ? data.slug : undefined;
+
+      await this.assertUniqueFields({ slug, handle, email }, id, tx);
+
+      const updated = await tx.artist.update({
+        where: { id },
+        data,
+      });
+
+      if (workFiles.length > 0) {
+        const uploaded = await Promise.all(
+          workFiles.map((f) => this.uploadToCloudinary(f, 'artists/works')),
+        );
+
+        const createData: Prisma.ArtistWorkCreateManyInput[] = uploaded.map(
+          (u, idx) => {
+            const meta = worksMeta[idx];
+            return {
+              artistId: updated.id,
+              title:
+                meta?.title?.trim() ||
+                this.safeTitleFromFilename(workFiles[idx]?.originalname) ||
+                'Untitled',
+              coverUrl: u.url,
+              tags: this.normalizeTags(meta?.tags),
+
+              // AUTO-PUBLISH
+              status: PublishStatus.PUBLISHED,
+              publishedAt: now,
+            };
+          },
+        );
+
+        await tx.artistWork.createMany({ data: createData });
+      }
+
+      return updated;
+    });
+  }
+
+  // -----------------------------
+  // Existing CRUD
+  // -----------------------------
   async create(dto: CreateArtistDto) {
+    const slug = dto.slug
+      ? this.resolveSlug(dto.slug, dto.handle, dto.displayName)
+      : undefined;
+
     const data: Prisma.ArtistCreateInput = {
       displayName: dto.displayName.trim(),
       handle: dto.handle?.trim(),
+      slug,
       email: dto.email?.trim()?.toLowerCase(),
       phone: dto.phone?.trim(),
       status: dto.status ?? ArtistStatus.ACTIVE,
       bio: dto.bio,
       avatarUrl: dto.avatarUrl,
     };
-    // await this.assertUniqueFields(data.handle, data.email);
+
     return this.prisma.artist.create({ data });
   }
 
@@ -32,6 +219,7 @@ export class ArtistsService {
     if (!artist) throw new NotFoundException('Artist not found');
     return artist;
   }
+
   async list(query: ListArtistsDto) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
@@ -45,6 +233,7 @@ export class ArtistsService {
             OR: [
               { displayName: { contains: q, mode: 'insensitive' } },
               { handle: { contains: q, mode: 'insensitive' } },
+              { slug: { contains: q, mode: 'insensitive' } },
               { email: { contains: q, mode: 'insensitive' } },
             ],
           }
@@ -61,23 +250,23 @@ export class ArtistsService {
       this.prisma.artist.count({ where }),
     ]);
 
-    return {
-      page,
-      limit,
-      total,
-      items,
-    };
+    return { page, limit, total, items };
   }
 
   async update(id: string, dto: UpdateArtistDto) {
-    // Ensure exists (and gives clean 404)
     await this.findOne(id);
+
+    const nextSlug =
+      dto.slug !== undefined
+        ? this.resolveSlug(dto.slug, dto.handle, dto.displayName)
+        : undefined;
 
     const data: Prisma.ArtistUpdateInput = {
       ...(dto.displayName !== undefined
         ? { displayName: dto.displayName.trim() }
         : {}),
       ...(dto.handle !== undefined ? { handle: dto.handle?.trim() } : {}),
+      ...(dto.slug !== undefined ? { slug: nextSlug } : {}),
       ...(dto.email !== undefined
         ? { email: dto.email?.trim()?.toLowerCase() }
         : {}),
@@ -87,19 +276,16 @@ export class ArtistsService {
       ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
     };
 
-    // Optional nicer pre-checks for unique fields if they are being changed
     const handle = typeof data.handle === 'string' ? data.handle : undefined;
     const email = typeof data.email === 'string' ? data.email : undefined;
-    await this.assertUniqueFields(handle, email, id);
+    const slug = typeof data.slug === 'string' ? data.slug : undefined;
 
-    return this.prisma.artist.update({
-      where: { id },
-      data,
-    });
+    await this.assertUniqueFields({ slug, handle, email }, id);
+
+    return this.prisma.artist.update({ where: { id }, data });
   }
 
   async deactivate(id: string) {
-    // prefer “soft delete”
     await this.findOne(id);
     return this.prisma.artist.update({
       where: { id },
@@ -107,31 +293,98 @@ export class ArtistsService {
     });
   }
 
-  private async assertUniqueFields(
+  // -----------------------------
+  // Helpers
+  // -----------------------------
+  private resolveSlug(
+    explicitSlug?: string,
     handle?: string,
-    email?: string,
-    excludeId?: string,
+    displayName?: string,
   ) {
-    if (!handle && !email) return;
+    const base = explicitSlug?.trim() || handle?.trim() || displayName?.trim();
+    if (!base) throw new BadRequestException('slug/handle/displayName required');
 
-    const conflicts = await this.prisma.artist.findFirst({
-      where: {
-        AND: [
-          excludeId ? { id: { not: excludeId } } : {},
-          {
-            OR: [
-              ...(handle ? [{ handle }] : []),
-              ...(email ? [{ email }] : []),
-            ],
-          },
-        ],
-      },
-      select: { id: true, handle: true, email: true },
+    const s = slugify(base);
+    if (!s || s.length < 2) throw new BadRequestException('Invalid slug');
+
+    return s;
+  }
+
+  private parseWorksMeta(
+    expectedLen: number,
+    json?: string,
+  ): (WorkMetaDto | undefined)[] {
+    if (!expectedLen) return [];
+    if (!json) return Array.from({ length: expectedLen }).map(() => undefined);
+
+    try {
+      const parsed = JSON.parse(json);
+      if (!Array.isArray(parsed)) throw new Error('worksMeta must be an array');
+      return Array.from({ length: expectedLen }).map((_, i) => parsed[i]);
+    } catch {
+      throw new BadRequestException('Invalid worksMeta JSON');
+    }
+  }
+
+  private normalizeTags(tags?: string[]) {
+    if (!tags?.length) return [];
+    return Array.from(
+      new Set(
+        tags
+          .map((t) => slugify(String(t)))
+          .filter((t) => t.length > 0),
+      ),
+    );
+  }
+
+  private safeTitleFromFilename(name?: string) {
+    if (!name) return undefined;
+    return name.replace(/\.[^/.]+$/, '').trim();
+  }
+
+  private async uploadToCloudinary(
+    file: Express.Multer.File,
+    folder: string,
+  ): Promise<{ url: string; publicId: string }> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException(
+        'Empty upload file (check Multer memoryStorage)',
+      );
+    }
+
+    const { publicId, secureUrl } = await this.media.uploadBuffer(file.buffer, {
+      folder,
+      filename: this.safeTitleFromFilename(file.originalname),
     });
 
-    if (conflicts) {
-      // Keep message simple; PrismaExceptionFilter will still catch hard unique errors
-      throw new BadRequestException('handle or email already in use');
+    return { publicId, url: secureUrl };
+  }
+
+  private async assertUniqueFields(
+    fields: { slug?: string; handle?: string; email?: string },
+    excludeId?: string,
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
+    const slug = fields.slug?.trim();
+    const handle = fields.handle?.trim();
+    const email = fields.email?.trim()?.toLowerCase();
+
+    const OR: Prisma.ArtistWhereInput[] = [];
+    if (slug) OR.push({ slug });
+    if (handle) OR.push({ handle });
+    if (email) OR.push({ email });
+
+    if (OR.length === 0) return;
+
+    const conflict = await tx.artist.findFirst({
+      where: {
+        AND: [excludeId ? { id: { not: excludeId } } : {}, { OR }],
+      },
+      select: { id: true },
+    });
+
+    if (conflict) {
+      throw new BadRequestException('slug/handle/email already in use');
     }
   }
 }

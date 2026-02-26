@@ -6,45 +6,84 @@ import {
   Patch,
   Post,
   Query,
-  UseGuards,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
-  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiParam,
-  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 
 import { ArtistsService } from './artists.service';
-import { CreateArtistDto } from './dto/create-artist.dto';
-import { UpdateArtistDto } from './dto/update-artist.dto';
 import { ListArtistsDto } from './dto/list-artists.dto';
-import { AuthGuard } from '@nestjs/passport';
+import { AdminCreateArtistMultipartDto } from './dto/admin-create-artist.multipart.dto';
+import { AdminUpdateArtistMultipartDto } from './dto/admin-update-artist.multipart.dto';
 
-
-@ApiTags('Artists')
-@ApiBearerAuth('admin-jwt')
+@ApiTags('Artists (Admin)')
 @Controller('artists')
-@UseGuards(AuthGuard('jwt'))
 export class ArtistsController {
   constructor(private readonly artists: ArtistsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create new artist' })
-  @ApiResponse({ status: 201, description: 'Artist created successfully' })
-  @ApiResponse({ status: 400, description: 'Validation or uniqueness error' })
-  create(@Body() dto: CreateArtistDto) {
-    return this.artists.create(dto);
+  @ApiOperation({ summary: 'Create new artist (multipart: cover + works)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'cover', maxCount: 1 },
+        { name: 'works', maxCount: 50 },
+      ],
+      {
+        storage: memoryStorage(), // IMPORTANT: enables file.buffer for uploadBuffer()
+        limits: {
+          fileSize: 15 * 1024 * 1024, // 15MB per file (adjust if needed)
+        },
+      },
+    ),
+  )
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        displayName: { type: 'string', example: 'Alex Ink' },
+        handle: { type: 'string', example: 'alex-ink' },
+        slug: { type: 'string', example: 'alex-ink' },
+        email: { type: 'string', example: 'alex@example.com' },
+        phone: { type: 'string', example: '+4912345678' },
+        status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
+        bio: { type: 'string' },
+        avatarUrl: { type: 'string' },
+
+        worksMeta: {
+          type: 'string',
+          description:
+            'JSON string array aligned with uploaded works. Example: [{"title":"Rose","tags":["blackwork"]}]',
+          example: '[{"title":"Rose","tags":["blackwork"]}]',
+        },
+
+        cover: { type: 'string', format: 'binary' },
+        works: { type: 'array', items: { type: 'string', format: 'binary' } },
+      },
+      required: ['displayName'],
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Artist created' })
+  create(
+    @UploadedFiles()
+    files: { cover?: Express.Multer.File[]; works?: Express.Multer.File[] },
+    @Body() dto: AdminCreateArtistMultipartDto,
+  ) {
+    return this.artists.createWithMedia(dto, files);
   }
 
   @Get()
   @ApiOperation({ summary: 'List artists with filtering and pagination' })
-  @ApiQuery({ name: 'status', required: false, enum: ['ACTIVE', 'INACTIVE'] })
-  @ApiQuery({ name: 'q', required: false, description: 'Search query' })
-  @ApiQuery({ name: 'page', required: false, example: 1 })
-  @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiResponse({ status: 200, description: 'Paged list of artists' })
   list(@Query() query: ListArtistsDto) {
     return this.artists.list(query);
@@ -60,18 +99,65 @@ export class ArtistsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update artist' })
-  @ApiParam({ name: 'id', description: 'Artist ID (cuid)' })
+  @ApiOperation({
+    summary: 'Update artist (multipart: optional cover + optional new works)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'cover', maxCount: 1 },
+        { name: 'works', maxCount: 50 },
+      ],
+      {
+        storage: memoryStorage(), // IMPORTANT
+        limits: {
+          fileSize: 15 * 1024 * 1024,
+        },
+      },
+    ),
+  )
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        displayName: { type: 'string' },
+        handle: { type: 'string' },
+        slug: { type: 'string' },
+        email: { type: 'string' },
+        phone: { type: 'string' },
+        status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
+        bio: { type: 'string' },
+        avatarUrl: { type: 'string' },
+
+        worksMeta: {
+          type: 'string',
+          description:
+            'JSON string array aligned with uploaded works. Example: [{"title":"Rose","tags":["blackwork"]}]',
+          example: '[{"title":"Rose","tags":["blackwork"]}]',
+        },
+
+        cover: { type: 'string', format: 'binary' },
+        works: { type: 'array', items: { type: 'string', format: 'binary' } },
+      },
+    },
+  })
   @ApiResponse({ status: 200, description: 'Artist updated' })
   @ApiResponse({ status: 404, description: 'Artist not found' })
-  update(@Param('id') id: string, @Body() dto: UpdateArtistDto) {
-    return this.artists.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @UploadedFiles()
+    files: { cover?: Express.Multer.File[]; works?: Express.Multer.File[] },
+    @Body() dto: AdminUpdateArtistMultipartDto,
+  ) {
+    return this.artists.updateWithMedia(id, dto, files);
   }
 
   @Patch(':id/deactivate')
   @ApiOperation({ summary: 'Deactivate artist (soft delete)' })
   @ApiParam({ name: 'id', description: 'Artist ID (cuid)' })
   @ApiResponse({ status: 200, description: 'Artist deactivated' })
+  @ApiResponse({ status: 404, description: 'Artist not found' })
   deactivate(@Param('id') id: string) {
     return this.artists.deactivate(id);
   }

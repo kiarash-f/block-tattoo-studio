@@ -7,6 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+
+
 //
 // Enums
 //
@@ -96,22 +98,29 @@ enum CancelReason {
   OTHER
 }
 
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+}
+
+
+
 //
 // Models
 //
 model AdminUser {
-  id           String   @id @default(uuid())
-  email        String   @unique
+  id           String    @id @default(uuid())
+  email        String    @unique
   passwordHash String
   displayName  String?
-  isActive     Boolean  @default(true)
+  isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   // BookingRequest relations 
-  reviewedBookingRequests   BookingRequest[] @relation("BookingReviewedBy")
-  checkedInBookingRequests  BookingRequest[] @relation("BookingCheckedInBy")
+  reviewedBookingRequests  BookingRequest[] @relation("BookingReviewedBy")
+  checkedInBookingRequests BookingRequest[] @relation("BookingCheckedInBy")
 
   // Medical/Consent submission audit
   medicalDeclarationsSubmitted MedicalDeclaration[] @relation("MedicalSubmittedBy")
@@ -121,15 +130,15 @@ model AdminUser {
 }
 
 model Client {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   firstName String
   lastName  String
   email     String?
   phone     String?
   instagram String?
   birthday  DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   bookingRequests BookingRequest[]
 
@@ -181,11 +190,11 @@ model BookingRequest {
   // scheduling & links
   tokens      BookingLinkToken[]
   assignments BookingAssignment[]
-  bookingType BookingType @default(APPOINTMENT)
+  bookingType BookingType         @default(APPOINTMENT)
 
   // lifecycle timestamps
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   approvedAt   DateTime?
   completedAt  DateTime?
   cancelledAt  DateTime?
@@ -199,10 +208,10 @@ model BookingRequest {
   uploads Upload[]
 
   // preferred time window (intake)
-  preferredDateFrom   DateTime?
-  preferredDateTo     DateTime?
-  preferredTimeOfDay  PreferredTimeOfDay?
-  preferredDaysNote   String?
+  preferredDateFrom  DateTime?
+  preferredDateTo    DateTime?
+  preferredTimeOfDay PreferredTimeOfDay?
+  preferredDaysNote  String?
 
   @@index([status, createdAt])
   @@index([clientId, createdAt])
@@ -302,7 +311,7 @@ model BookingLinkToken {
   secretHash String
 
   scopes BookingLinkScope[]
-  status BookingLinkStatus @default(ACTIVE)
+  status BookingLinkStatus  @default(ACTIVE)
 
   expiresAt DateTime
 
@@ -325,16 +334,19 @@ model BookingLinkToken {
 
 model Artist {
   id          String       @id @default(cuid())
-  studioId    String?      // keep nullable for single-shop now; later required
+  studioId    String?
   displayName String
-  handle      String?      @unique // optional: "alex-ink"
+  handle      String?      @unique
+  slug        String?      @unique  // new (nullable for safe migration)
   email       String?      @unique
   phone       String?
   status      ArtistStatus @default(ACTIVE)
 
-  // Optional future metadata
   bio       String?
   avatarUrl String?
+  coverUrl  String?        // new
+
+  works     ArtistWork[]   // new relation
 
   assignments BookingAssignment[]
 
@@ -343,13 +355,32 @@ model Artist {
 
   @@index([studioId, status])
   @@index([displayName])
+  @@index([slug])
+}
+
+model ArtistWork {
+  id          String        @id @default(cuid())
+  title       String
+  coverUrl    String
+  tags        String[]      // hashtags
+  status      PublishStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  artistId    String
+  artist      Artist        @relation(fields: [artistId], references: [id], onDelete: Cascade)
+
+  @@index([artistId, createdAt])
+  @@index([status, createdAt])
+  @@index([tags])
 }
 
 model StudioStation {
   id       String        @id @default(cuid())
   studioId String?
-  name     String        // e.g. "Station 1", "Room A"
-  code     String?       // e.g. "S1", "RM-A"
+  name     String // e.g. "Station 1", "Room A"
+  code     String? // e.g. "S1", "RM-A"
   status   StationStatus @default(ACTIVE)
 
   assignments BookingAssignment[]
@@ -357,8 +388,8 @@ model StudioStation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([studioId, status])
   @@unique([studioId, name]) // avoids duplicates per studio (studioId can be null now)
+  @@index([studioId, status])
 }
 
 model BookingAssignment {
@@ -382,8 +413,10 @@ model BookingAssignment {
   artist         Artist         @relation(fields: [artistId], references: [id], onDelete: Restrict)
   station        StudioStation? @relation(fields: [stationId], references: [id], onDelete: SetNull)
 
+  @@unique([bookingRequestId, artistId, role])
   @@index([bookingRequestId])
   @@index([artistId])
   @@index([stationId])
-  @@unique([bookingRequestId, artistId, role])
 }
+
+

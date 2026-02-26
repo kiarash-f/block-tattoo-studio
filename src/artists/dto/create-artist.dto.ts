@@ -47,4 +47,11 @@ export class CreateArtistDto {
   @IsOptional()
   @IsString()
   avatarUrl?: string;
+
+  @ApiPropertyOptional({ example: 'alex-ink' })
+  @IsOptional()
+  @IsString()
+  @Length(2, 80)
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/i)
+  slug?: string;
 }

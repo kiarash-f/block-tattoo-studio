@@ -14,6 +14,7 @@ import { ArtistsModule } from './artists/artists.module';
 import { StudioStationsModule } from './studio-stations/studio-stations.module';
 import { BookingAssignmentsModule } from './booking-assignments/booking-assignments.module';
 import { KioskModule } from './kiosk/kiosk.module';
+import { WorksModule } from './works/works.module';
 
 @Module({
   imports: [
@@ -39,7 +40,8 @@ import { KioskModule } from './kiosk/kiosk.module';
     ArtistsModule,
     StudioStationsModule,
     BookingAssignmentsModule,
-    KioskModule
+    KioskModule,
+    WorksModule
   ],
 })
 export class AppModule {}
