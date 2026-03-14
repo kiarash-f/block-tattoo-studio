@@ -31,9 +31,12 @@ export class GoogleReviewsService {
 
   async getReviews(): Promise<GoogleReviewsResponse> {
     try {
-      const cached = await this.cache.get<GoogleReviewsResponse>(CACHE_KEY);
+      const cached = await this.withTimeout(
+        this.cache.get<GoogleReviewsResponse>(CACHE_KEY),
+        2000,
+      );
       if (cached) return cached;
-    } catch (err) {
+    } catch {
       this.logger.warn('Cache unavailable — fetching Google reviews directly');
     }
 
@@ -41,12 +44,21 @@ export class GoogleReviewsService {
 
     try {
       const ttl = this.config.get<number>('GOOGLE_REVIEWS_CACHE_TTL') ?? 3600;
-      await this.cache.set(CACHE_KEY, data, ttl * 1000);
-    } catch (err) {
-      this.logger.warn('Could not cache Google reviews — Redis may be down');
+      await this.withTimeout(this.cache.set(CACHE_KEY, data, ttl * 1000), 2000);
+    } catch {
+      this.logger.warn('Could not store Google reviews in cache');
     }
 
     return data;
+  }
+
+  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error('cache timeout')), ms),
+      ),
+    ]);
   }
 
   private async fetchFromGoogle(): Promise<GoogleReviewsResponse> {
