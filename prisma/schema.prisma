@@ -103,8 +103,6 @@ enum PublishStatus {
   PUBLISHED
 }
 
-
-
 //
 // Models
 //

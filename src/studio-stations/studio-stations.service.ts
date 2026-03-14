@@ -17,8 +17,8 @@ export class StudioStationsService {
     const name = dto.name.trim();
     const code = dto.code?.trim();
 
-    // Optional: friendly pre-check for duplicate name in single-studio (studioId null)
     await this.assertUniqueName(name);
+    if (code) await this.assertUniqueCode(code);
 
     return this.prisma.studioStation.create({
       data: {
@@ -75,6 +75,9 @@ export class StudioStationsService {
     const name = dto.name?.trim();
     if (name) await this.assertUniqueName(name, id);
 
+    const code = dto.code?.trim();
+    if (code) await this.assertUniqueCode(code, id);
+
     return this.prisma.studioStation.update({
       where: { id },
       data: {
@@ -98,7 +101,7 @@ export class StudioStationsService {
       where: {
         AND: [
           { name },
-          { studioId: null }, // single shop now
+          { studioId: null },
           excludeId ? { id: { not: excludeId } } : {},
         ],
       },
@@ -106,5 +109,20 @@ export class StudioStationsService {
     });
 
     if (existing) throw new BadRequestException('Station name already exists');
+  }
+
+  private async assertUniqueCode(code: string, excludeId?: string) {
+    const existing = await this.prisma.studioStation.findFirst({
+      where: {
+        AND: [
+          { code },
+          { studioId: null },
+          excludeId ? { id: { not: excludeId } } : {},
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (existing) throw new BadRequestException('Station code already exists');
   }
 }

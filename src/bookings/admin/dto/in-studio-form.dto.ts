@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsDefined,
   IsISO8601,
   IsNotEmpty,
   IsOptional,
@@ -48,11 +49,13 @@ export class InStudioConsentDto {
 
 export class SubmitInStudioFormDto {
   @ApiProperty({ type: () => InStudioMedicalDto })
+  @IsDefined()
   @ValidateNested()
   @Type(() => InStudioMedicalDto)
   medical!: InStudioMedicalDto;
 
   @ApiProperty({ type: () => InStudioConsentDto })
+  @IsDefined()
   @ValidateNested()
   @Type(() => InStudioConsentDto)
   consent!: InStudioConsentDto;

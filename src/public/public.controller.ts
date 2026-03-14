@@ -46,7 +46,7 @@ export class PublicController {
   },
   "bookingRequest": {
     "description": "Small tattoo on wrist",
-    "budgetRange": "B200_400"
+    "budgetRange": "_200_400"
   },
   "medicalDeclaration": {
     "hasAllergies": false,

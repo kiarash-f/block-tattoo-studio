@@ -39,15 +39,6 @@ async function bootstrap() {
       },
       'admin-jwt',
     )
-    .addApiKey(
-      {
-        type: 'apiKey',
-        name: 'X-STUDIO-KIOSK-KEY',
-        in: 'header',
-        description: 'Kiosk API key for in-studio tablet endpoints',
-      },
-      'kiosk-key',
-    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
