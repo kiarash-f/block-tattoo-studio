@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { CacheModule } from '@nestjs/cache-manager';
+import { createKeyv } from '@keyv/redis';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -14,6 +16,8 @@ import { ArtistsModule } from './artists/artists.module';
 import { StudioStationsModule } from './studio-stations/studio-stations.module';
 import { BookingAssignmentsModule } from './booking-assignments/booking-assignments.module';
 import { WorksModule } from './works/works.module';
+import { ArticlesModule } from './articles/articles.module';
+import { GoogleReviewsModule } from './google-reviews/google-reviews.module';
 
 @Module({
   imports: [
@@ -23,10 +27,32 @@ import { WorksModule } from './works/works.module';
     }),
     ThrottlerModule.forRoot([
       {
-        ttl: 60, // time window in seconds
-        limit: 20, // max requests per window
+        ttl: 60,
+        limit: 20,
       },
     ]),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => {
+        const host = config.get<string>('REDIS_HOST') ?? 'localhost';
+        const port = config.get<number>('REDIS_PORT') ?? 6379;
+        const password = config.get<string>('REDIS_PASSWORD');
+
+        const redisUrl = password
+          ? `redis://:${password}@${host}:${port}`
+          : `redis://${host}:${port}`;
+
+        return {
+          stores: [
+            createKeyv(
+              { url: redisUrl, socket: { connectTimeout: 3000 } },
+              { throwOnConnectError: false },
+            ),
+          ],
+        };
+      },
+    }),
 
     PrismaModule,
     AuthModule,
@@ -39,7 +65,9 @@ import { WorksModule } from './works/works.module';
     ArtistsModule,
     StudioStationsModule,
     BookingAssignmentsModule,
-    WorksModule
+    WorksModule,
+    ArticlesModule,
+    GoogleReviewsModule,
   ],
 })
 export class AppModule {}

@@ -124,6 +124,9 @@ model AdminUser {
   medicalDeclarationsSubmitted MedicalDeclaration[] @relation("MedicalSubmittedBy")
   consentsSubmitted            Consent[]            @relation("ConsentSubmittedBy")
 
+  // Articles
+  articles Article[]
+
   @@index([isActive])
 }
 
@@ -415,6 +418,28 @@ model BookingAssignment {
   @@index([bookingRequestId])
   @@index([artistId])
   @@index([stationId])
+}
+
+model Article {
+  id          String        @id @default(cuid())
+  title       String
+  slug        String        @unique
+  excerpt     String?
+  content     String
+  coverUrl    String?
+  tags        String[]
+  status      PublishStatus @default(DRAFT)
+  publishedAt DateTime?
+
+  authorId String?
+  author   AdminUser? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, publishedAt])
+  @@index([slug])
+  @@index([tags])
 }
 
 

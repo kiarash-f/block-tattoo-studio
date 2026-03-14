@@ -18,4 +18,14 @@ export const envValidationSchema = Joi.object({
 
   PUBLIC_BASE_URL: Joi.string().uri().required(),
   BOOKING_LINK_TOKEN_PEPPER: Joi.string().min(32).required(),
+
+  // Redis
+  REDIS_HOST: Joi.string().default('localhost'),
+  REDIS_PORT: Joi.number().default(6379),
+  REDIS_PASSWORD: Joi.string().optional().allow(''),
+
+  // Google Reviews
+  GOOGLE_PLACES_API_KEY: Joi.string().optional().allow(''),
+  GOOGLE_PLACE_ID: Joi.string().optional().allow(''),
+  GOOGLE_REVIEWS_CACHE_TTL: Joi.number().default(3600),
 }).unknown(true);
