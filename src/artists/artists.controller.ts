@@ -7,9 +7,11 @@ import {
   Post,
   Query,
   UploadedFiles,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBody,
   ApiConsumes,
   ApiOperation,
@@ -17,6 +19,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { AuthGuard } from '@nestjs/passport';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 
@@ -26,6 +29,8 @@ import { AdminCreateArtistMultipartDto } from './dto/admin-create-artist.multipa
 import { AdminUpdateArtistMultipartDto } from './dto/admin-update-artist.multipart.dto';
 
 @ApiTags('Artists (Admin)')
+@ApiBearerAuth('admin-jwt')
+@UseGuards(AuthGuard('jwt'))
 @Controller('artists')
 export class ArtistsController {
   constructor(private readonly artists: ArtistsService) {}

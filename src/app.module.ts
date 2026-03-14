@@ -39,7 +39,7 @@ import { WorksModule } from './works/works.module';
     ArtistsModule,
     StudioStationsModule,
     BookingAssignmentsModule,
-    WorksModule
+    WorksModule,
   ],
 })
 export class AppModule {}
