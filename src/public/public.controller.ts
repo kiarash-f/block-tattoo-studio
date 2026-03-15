@@ -18,7 +18,7 @@ import { PublicService } from './public.service';
 import { CreateBookingIntakeDto, IntakeSource } from './dto/booking-intake.dto';
 import { Throttle } from '@nestjs/throttler';
 
-@ApiTags('Public')
+@ApiTags('Public / Booking')
 @Controller('public')
 export class PublicController {
   constructor(private readonly publicService: PublicService) {}

@@ -4,7 +4,7 @@ import { PublicArtistsService } from './public-artists.service';
 import { LookbookQueryDto } from './dto/lookbook.query.dto';
 import { ArtistPageQueryDto } from './dto/artist-page.query.dto';
 
-@ApiTags('Public Artists')
+@ApiTags('Public / Artists')
 @Controller('public/artists')
 export class PublicArtistsController {
   constructor(private readonly svc: PublicArtistsService) {}

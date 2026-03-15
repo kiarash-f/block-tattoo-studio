@@ -5,7 +5,7 @@ import { BookingLinksService } from './booking-links.service';
 import { CreateBookingLinkDto } from './dto/create-booking-link.dto';
 import type { AdminJwtPayload } from '../auth/jwt.strategy'; 
 
-@ApiTags('Admin Booking Links')
+@ApiTags('Admin / Booking Links')
 @ApiBearerAuth('admin-jwt')
 @UseGuards(AuthGuard('jwt'))
 @Controller('admin/booking-requests')

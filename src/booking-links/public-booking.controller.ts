@@ -28,7 +28,7 @@ import { UploadKind } from '@prisma/client';
 import { BookingLinksUploadsService } from './uploads/booking-links-uploads.service';
 import { PublicUploadDto } from './dto/public-upload.dto';
 
-@ApiTags('Public Booking (Token)')
+@ApiTags('Public / Booking')
 @Controller('public/booking/:token')
 @UseGuards(PublicTokenGuard, TokenScopesGuard)
 @ApiParam({

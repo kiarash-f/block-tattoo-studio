@@ -13,7 +13,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { SubmitInStudioFormDto } from './dto/in-studio-form.dto';
 import { AdminBookingRequestsService } from './admin-booking-requests.service';
 
-@ApiTags('Admin / Booking Requests')
+@ApiTags('Admin / Bookings')
 @ApiBearerAuth('admin-jwt')
 @Controller('admin/booking-requests')
 @UseGuards(AuthGuard('jwt'))

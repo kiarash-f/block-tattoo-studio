@@ -20,7 +20,7 @@ import { WorksService } from './works.service';
 import { UpdateWorkDto } from './dto/update-work.dto';
 import { ListWorksDto } from './dto/list-works.dto';
 
-@ApiTags('Artist Works (Admin)')
+@ApiTags('Admin / Artist Works')
 @ApiBearerAuth('admin-jwt')
 @UseGuards(AuthGuard('jwt'))
 @Controller('artists/:artistId/works')

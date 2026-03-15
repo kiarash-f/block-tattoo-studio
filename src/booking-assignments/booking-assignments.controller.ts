@@ -20,7 +20,7 @@ import { CreateBookingAssignmentDto } from './dto/create-booking-assignment.dto'
 import { UpdateBookingAssignmentDto } from './dto/update-booking-assignment.dto';
 import { AuthGuard } from '@nestjs/passport';
 
-@ApiTags('Booking Assignments')
+@ApiTags('Admin / Booking Assignments')
 @ApiBearerAuth('admin-jwt')
 @Controller('booking-requests/:bookingRequestId/assignments')
 @UseGuards(AuthGuard('jwt'))
