@@ -28,7 +28,7 @@ import { ListArtistsDto } from './dto/list-artists.dto';
 import { AdminCreateArtistMultipartDto } from './dto/admin-create-artist.multipart.dto';
 import { AdminUpdateArtistMultipartDto } from './dto/admin-update-artist.multipart.dto';
 
-@ApiTags('Artists (Admin)')
+@ApiTags('Admin / Artists')
 @ApiBearerAuth('admin-jwt')
 @UseGuards(AuthGuard('jwt'))
 @Controller('artists')

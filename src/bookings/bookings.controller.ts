@@ -15,7 +15,7 @@ import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 import { ListBookingsQueryDto } from './dto/list-bookings.query.dto';
 import type { AdminJwtPayload } from '../auth/jwt.strategy';
 
-@ApiTags('Admin Bookings')
+@ApiTags('Admin / Bookings')
 @ApiBearerAuth('admin-jwt')
 @UseGuards(AuthGuard('jwt'))
 @Controller('admin/bookings')

@@ -6,7 +6,7 @@ import { ListAppointmentsQueryDto } from "./dto/list-appointments.query.dto";
 
 
 
-@ApiTags('Admin Appointments')
+@ApiTags('Admin / Bookings')
 @ApiBearerAuth('admin-jwt')
 @UseGuards(AuthGuard('jwt'))
 @Controller('admin/appointments')

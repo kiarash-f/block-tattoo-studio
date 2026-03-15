@@ -23,7 +23,7 @@ import { ListStudioStationsDto } from './dto/list-studio-stations.dto';
 import { AuthGuard } from '@nestjs/passport';
 
 
-@ApiTags('Studio Stations')
+@ApiTags('Admin / Stations')
 @ApiBearerAuth('admin-jwt')
 @Controller('studio-stations')
 @UseGuards(AuthGuard('jwt'))
