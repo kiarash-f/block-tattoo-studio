@@ -53,7 +53,7 @@ async function bootstrap() {
 
   app.use(helmet());
 
-  const port = process.env.PORT ? Number(process.env.PORT) : 3100;
+  const port = process.env.PORT ? Number(process.env.PORT) : 3101;
   await app.listen(port, '0.0.0.0');
   console.log(`API running on http://localhost:${port}`);
   console.log(`Swagger on http://localhost:${port}/docs`);
