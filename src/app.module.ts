@@ -19,6 +19,7 @@ import { WorksModule } from './works/works.module';
 import { ArticlesModule } from './articles/articles.module';
 import { GoogleReviewsModule } from './google-reviews/google-reviews.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { SchedulingModule } from './scheduling/scheduling.module';
     ArticlesModule,
     GoogleReviewsModule,
     SchedulingModule,
+    EmailModule,
   ],
 })
 export class AppModule {}

@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
+import { EmailService } from '../email/email.service';
 import {
   CreateBookingIntakeDto,
   BudgetRange as DtoBudgetRange,
@@ -88,6 +89,7 @@ export class PublicService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
+    private readonly email: EmailService,
   ) {}
 
   /**
@@ -101,7 +103,7 @@ export class PublicService {
     dto: CreateBookingIntakeDto,
     files: Express.Multer.File[],
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const { client, bookingRequest } = dto;
       const medicalDeclaration = dto.medicalDeclaration;
       const consent = dto.consent;
@@ -281,7 +283,25 @@ export class PublicService {
         bookingRequestId: br.id,
         status: br.status,
         createdAt: br.createdAt,
+        clientEmail: clientRow.email ?? null,
+        clientName: `${clientRow.firstName} ${clientRow.lastName}`.trim(),
       };
     });
+
+    if (result.clientEmail) {
+      this.email
+        .sendBookingConfirmation({
+          to: result.clientEmail,
+          clientName: result.clientName,
+          bookingRequestId: result.bookingRequestId,
+        })
+        .catch(() => void 0);
+    }
+
+    return {
+      bookingRequestId: result.bookingRequestId,
+      status: result.status,
+      createdAt: result.createdAt,
+    };
   }
 }

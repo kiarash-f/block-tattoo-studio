@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import {
   AssignmentRole,
   BookingStatus,
@@ -32,7 +33,10 @@ const REVIEWED_STATUSES: BookingStatus[] = [
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   async list(params: {
     status?: BookingStatus;
@@ -163,7 +167,7 @@ export class BookingsService {
 
     const shouldSetReviewed = REVIEWED_STATUSES.includes(next);
 
-    return this.prisma.bookingRequest.update({
+    const updated = await this.prisma.bookingRequest.update({
       where: { id },
       data: {
         status: next,
@@ -177,7 +181,19 @@ export class BookingsService {
             }
           : {}),
       },
+      include: { client: { select: { email: true, firstName: true, lastName: true } } },
     });
+
+    if (next === BookingStatus.REJECTED && updated.client.email) {
+      this.email
+        .sendBookingRejected({
+          to: updated.client.email,
+          clientName: `${updated.client.firstName} ${updated.client.lastName}`.trim(),
+        })
+        .catch(() => void 0);
+    }
+
+    return updated;
   }
 
   async getPublicIntake(bookingRequestId: string) {
