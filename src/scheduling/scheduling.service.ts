@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { BookingStatus, StationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { CreateConsultSlotDto } from './dto/create-consult-slot.dto';
 import { AssignConsultSlotDto } from './dto/assign-consult-slot.dto';
 import { CreateTattooSessionDto } from './dto/create-tattoo-session.dto';
@@ -12,7 +13,10 @@ import { UpdateTattooSessionDto } from './dto/update-tattoo-session.dto';
 
 @Injectable()
 export class SchedulingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
 
   // ─── Consult Slots ────────────────────────────────────────────────────────
 
@@ -72,7 +76,12 @@ export class SchedulingService {
   async assignConsultSlot(bookingId: string, dto: AssignConsultSlotDto) {
     const booking = await this.prisma.bookingRequest.findUnique({
       where: { id: bookingId },
-      select: { id: true, status: true, consultSlotId: true },
+      select: {
+        id: true,
+        status: true,
+        consultSlotId: true,
+        client: { select: { email: true, firstName: true, lastName: true } },
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
@@ -102,7 +111,7 @@ export class SchedulingService {
       throw new BadRequestException('Consult slot date is in the past');
     }
 
-    return this.prisma.bookingRequest.update({
+    const updated = await this.prisma.bookingRequest.update({
       where: { id: bookingId },
       data: { consultSlotId: dto.consultSlotId },
       select: {
@@ -112,6 +121,18 @@ export class SchedulingService {
         consultSlot: { select: { id: true, date: true, maxCount: true } },
       },
     });
+
+    if (booking.client.email && slot.date) {
+      this.email
+        .sendConsultConfirmation({
+          to: booking.client.email,
+          clientName: `${booking.client.firstName} ${booking.client.lastName}`.trim(),
+          consultDate: slot.date,
+        })
+        .catch(() => void 0);
+    }
+
+    return updated;
   }
 
   // ─── Public Availability ──────────────────────────────────────────────────

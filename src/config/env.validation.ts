@@ -28,4 +28,12 @@ export const envValidationSchema = Joi.object({
   GOOGLE_PLACES_API_KEY: Joi.string().optional().allow(''),
   GOOGLE_PLACE_ID: Joi.string().optional().allow(''),
   GOOGLE_REVIEWS_CACHE_TTL: Joi.number().default(3600),
+
+  // Transactional Email (Resend)
+  RESEND_API_KEY: Joi.string().optional().allow(''),
+  EMAIL_FROM: Joi.string().optional().allow(''),
+  STUDIO_NAME: Joi.string().optional().default('Tattoo Studio'),
+  STUDIO_ADDRESS: Joi.string().optional().allow(''),
+  STUDIO_PHONE: Joi.string().optional().allow(''),
+  STUDIO_WEBSITE: Joi.string().optional().allow(''),
 }).unknown(true);
