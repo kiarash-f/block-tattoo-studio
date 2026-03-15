@@ -29,6 +29,9 @@ export const envValidationSchema = Joi.object({
   GOOGLE_PLACE_ID: Joi.string().optional().allow(''),
   GOOGLE_REVIEWS_CACHE_TTL: Joi.number().default(3600),
 
+  // Anthropic AI
+  ANTHROPIC_API_KEY: Joi.string().optional().allow(''),
+
   // Transactional Email (Resend)
   RESEND_API_KEY: Joi.string().optional().allow(''),
   EMAIL_FROM: Joi.string().optional().allow(''),
