@@ -20,6 +20,7 @@ import { ArticlesModule } from './articles/articles.module';
 import { GoogleReviewsModule } from './google-reviews/google-reviews.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
 import { EmailModule } from './email/email.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -72,6 +73,7 @@ import { EmailModule } from './email/email.module';
     GoogleReviewsModule,
     SchedulingModule,
     EmailModule,
+    ChatModule,
   ],
 })
 export class AppModule {}
