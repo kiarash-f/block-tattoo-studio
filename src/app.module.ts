@@ -18,6 +18,7 @@ import { BookingAssignmentsModule } from './booking-assignments/booking-assignme
 import { WorksModule } from './works/works.module';
 import { ArticlesModule } from './articles/articles.module';
 import { GoogleReviewsModule } from './google-reviews/google-reviews.module';
+import { SchedulingModule } from './scheduling/scheduling.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { GoogleReviewsModule } from './google-reviews/google-reviews.module';
     WorksModule,
     ArticlesModule,
     GoogleReviewsModule,
+    SchedulingModule,
   ],
 })
 export class AppModule {}

@@ -193,6 +193,13 @@ model BookingRequest {
   assignments BookingAssignment[]
   bookingType BookingType         @default(APPOINTMENT)
 
+  // consult slot (phase 5)
+  consultSlotId String?
+  consultSlot   ConsultSlot? @relation("ConsultSlotBookings", fields: [consultSlotId], references: [id], onDelete: SetNull)
+
+  // tattoo sessions (phase 5)
+  tattooSessions TattooSession[]
+
   // lifecycle timestamps
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -229,6 +236,7 @@ model BookingRequest {
   @@index([preferredDateTo])
   @@index([checkedInAt])
   @@index([inStudioCompletedAt])
+  @@index([consultSlotId])
 }
 
 model MedicalDeclaration {
@@ -349,7 +357,8 @@ model Artist {
 
   works     ArtistWork[]   // new relation
 
-  assignments BookingAssignment[]
+  assignments    BookingAssignment[]
+  tattooSessions TattooSession[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -384,7 +393,8 @@ model StudioStation {
   code     String? // e.g. "S1", "RM-A"
   status   StationStatus @default(ACTIVE)
 
-  assignments BookingAssignment[]
+  assignments    BookingAssignment[]
+  tattooSessions TattooSession[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -440,6 +450,44 @@ model Article {
   @@index([status, publishedAt])
   @@index([slug])
   @@index([tags])
+}
+
+model ConsultSlot {
+  id       String   @id @default(cuid())
+  date     DateTime @db.Date
+  maxCount Int      @default(3)
+
+  bookings BookingRequest[] @relation("ConsultSlotBookings")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([date])
+  @@index([date])
+}
+
+model TattooSession {
+  id               String         @id @default(cuid())
+  bookingRequestId String
+  bookingRequest   BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+
+  artistId String
+  artist   Artist @relation(fields: [artistId], references: [id], onDelete: Restrict)
+
+  stationId String?
+  station   StudioStation? @relation(fields: [stationId], references: [id], onDelete: SetNull)
+
+  scheduledDate DateTime
+  durationNote  String?
+  completedAt   DateTime?
+  notes         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingRequestId])
+  @@index([artistId])
+  @@index([scheduledDate])
 }
 
 
