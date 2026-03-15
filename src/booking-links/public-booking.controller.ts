@@ -15,6 +15,7 @@ import {
   ApiConsumes,
   ApiOperation,
   ApiParam,
+  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -43,7 +44,10 @@ export class PublicBookingController {
   ) {}
 
   @Get('intake')
-  @ApiOperation({ summary: 'Get intake data via token (requires VIEW)' })
+  @ApiOperation({ summary: 'Get intake data via token (requires VIEW)', description: 'Returns the booking request intake data for the client associated with this token. Requires the VIEW scope.' })
+  @ApiResponse({ status: 200, description: 'Intake data returned.' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired token.' })
+  @ApiResponse({ status: 403, description: 'Token lacks required VIEW scope.' })
   @TokenScopes('VIEW')
   async getIntake(@Req() req: Request) {
     const { bookingRequestId } = req.publicToken!;
@@ -53,7 +57,11 @@ export class PublicBookingController {
   @Patch('intake')
   @ApiOperation({
     summary: 'Update intake via token (requires INTAKE_CONTINUE)',
+    description: 'Allows the client to update their intake form (description, budget, preferred dates, etc.) via a tokenized link. Requires the INTAKE_CONTINUE scope.',
   })
+  @ApiResponse({ status: 200, description: 'Intake updated.' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired token.' })
+  @ApiResponse({ status: 403, description: 'Token lacks required INTAKE_CONTINUE scope.' })
   @TokenScopes('INTAKE_CONTINUE')
   async updateIntake(@Req() req: Request, @Body() dto: PublicUpdateIntakeDto) {
     const { bookingRequestId } = req.publicToken!;
@@ -61,7 +69,11 @@ export class PublicBookingController {
   }
 
   @Post('uploads')
-  @ApiOperation({ summary: 'Upload via token (requires UPLOAD)' })
+  @ApiOperation({ summary: 'Upload via token (requires UPLOAD)', description: 'Uploads reference or healed photos for a booking request using a tokenized link. Requires the UPLOAD scope.' })
+  @ApiResponse({ status: 201, description: 'Files uploaded successfully.' })
+  @ApiResponse({ status: 400, description: 'No files provided or invalid file type.' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired token.' })
+  @ApiResponse({ status: 403, description: 'Token lacks required UPLOAD scope.' })
   @TokenScopes('UPLOAD')
   @ApiConsumes('multipart/form-data')
   @ApiBody({

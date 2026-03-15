@@ -1,6 +1,6 @@
 import { Controller , Get , Query , UseGuards } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
-import { ApiBearerAuth , ApiTags , ApiOperation } from "@nestjs/swagger";
+import { ApiBearerAuth , ApiTags , ApiOperation , ApiResponse } from "@nestjs/swagger";
 import { BookingsService } from "./bookings.service";
 import { ListAppointmentsQueryDto } from "./dto/list-appointments.query.dto";
 
@@ -14,7 +14,8 @@ export class AdminAppointmentsController {
   constructor(private readonly bookings: BookingsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List appointments for a day (by PRIMARY assignment startsAt)' })
+  @ApiOperation({ summary: 'List appointments for a specific day', description: 'Returns all bookings that have a PRIMARY assignment with a startsAt on the given date. Used for the admin daily schedule view. Requires date (YYYY-MM-DD) query param.' })
+  @ApiResponse({ status: 200, description: 'List of appointments for the day.' })
   list(@Query() query: ListAppointmentsQueryDto) {
     return this.bookings.listDailyAppointments({
       date: query.date,

@@ -12,7 +12,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { PublicService } from './public.service';
 import { CreateBookingIntakeDto, IntakeSource } from './dto/booking-intake.dto';
@@ -27,7 +27,10 @@ export class PublicController {
   @Post('booking-intake')
   @ApiOperation({
     summary: 'Public booking intake (multipart: payload + files[])',
+    description: 'Submits a new booking request from the public website. Accepts a JSON payload field plus optional reference image uploads. Sends a confirmation email to the client.',
   })
+  @ApiResponse({ status: 201, description: 'Booking intake submitted successfully.' })
+  @ApiResponse({ status: 400, description: 'Invalid payload, file type, or validation error.' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {

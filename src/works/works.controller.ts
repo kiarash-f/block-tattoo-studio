@@ -12,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -28,8 +29,9 @@ export class WorksController {
   constructor(private readonly works: WorksService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List works for an artist (all statuses)' })
+  @ApiOperation({ summary: 'List works for an artist (all statuses)', description: 'Returns all portfolio works for an artist, including draft and unpublished items. Supports filtering and pagination.' })
   @ApiParam({ name: 'artistId', description: 'Artist ID (cuid)' })
+  @ApiResponse({ status: 200, description: 'List of works.' })
   list(
     @Param('artistId') artistId: string,
     @Query() query: ListWorksDto,
@@ -38,7 +40,7 @@ export class WorksController {
   }
 
   @Patch(':workId')
-  @ApiOperation({ summary: 'Update work title, tags, or publish status' })
+  @ApiOperation({ summary: 'Update work title, tags, or publish status', description: 'Updates metadata or publish status for a specific portfolio work. Use to publish/unpublish or retag a work.' })
   @ApiParam({ name: 'artistId', description: 'Artist ID (cuid)' })
   @ApiParam({ name: 'workId', description: 'Work ID (cuid)' })
   @ApiResponse({ status: 200, description: 'Work updated' })
@@ -52,7 +54,7 @@ export class WorksController {
   }
 
   @Delete(':workId')
-  @ApiOperation({ summary: 'Delete a work' })
+  @ApiOperation({ summary: 'Delete a work', description: 'Permanently deletes a portfolio work and its associated media files.' })
   @ApiParam({ name: 'artistId', description: 'Artist ID (cuid)' })
   @ApiParam({ name: 'workId', description: 'Work ID (cuid)' })
   @ApiResponse({ status: 200, description: 'Work deleted' })

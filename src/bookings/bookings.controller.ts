@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 import { ListBookingsQueryDto } from './dto/list-bookings.query.dto';
@@ -23,7 +23,8 @@ export class BookingsController {
   constructor(private readonly bookings: BookingsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List booking requests (admin)' })
+  @ApiOperation({ summary: 'List all booking requests', description: 'Returns paginated list of all booking requests. Filterable by status, search query, page, and limit.' })
+  @ApiResponse({ status: 200, description: 'Paginated list of booking requests.' })
   list(@Query() query: ListBookingsQueryDto) {
     return this.bookings.list({
       status: query.status,
@@ -34,14 +35,18 @@ export class BookingsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Booking request detail (admin)' })
+  @ApiOperation({ summary: 'Get booking request detail', description: 'Returns full detail of a single booking request including client info, assignments, uploads, and scheduling.' })
+  @ApiResponse({ status: 200, description: 'Booking request found.' })
+  @ApiResponse({ status: 404, description: 'Booking request not found.' })
   detail(@Param('id') id: string) {
     return this.bookings.detail(id);
   }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Update booking status (admin)' })
+  @ApiOperation({ summary: 'Update booking status', description: 'Update the status of a booking request. Valid transitions: NEW → IN_REVIEW → APPROVED or REJECTED. Sending REJECTED triggers a rejection email to the client.' })
   @ApiBody({ type: UpdateBookingStatusDto })
+  @ApiResponse({ status: 200, description: 'Status updated successfully.' })
+  @ApiResponse({ status: 404, description: 'Booking request not found.' })
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateBookingStatusDto,
