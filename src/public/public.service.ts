@@ -92,13 +92,7 @@ export class PublicService {
     private readonly email: EmailService,
   ) {}
 
-  /**
-   * Public intake:
-   * - Creates/updates Client
-   * - Creates BookingRequest
-   * - ✅ medicalDeclaration + consent are OPTIONAL now (filled later in-studio)
-   * - Optionally uploads REFERENCE images (files[])
-   */
+ 
   async createBookingIntake(
     dto: CreateBookingIntakeDto,
     files: Express.Multer.File[],
