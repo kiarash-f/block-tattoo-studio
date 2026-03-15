@@ -36,7 +36,7 @@ export class ArtistsController {
   constructor(private readonly artists: ArtistsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create new artist (multipart: cover + works)' })
+  @ApiOperation({ summary: 'Create new artist (multipart: cover + works)', description: 'Creates a new artist profile with optional cover image and portfolio work uploads. Accepts multipart/form-data.' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -88,14 +88,14 @@ export class ArtistsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'List artists with filtering and pagination' })
+  @ApiOperation({ summary: 'List artists with filtering and pagination', description: 'Returns a paginated list of artists. Supports filtering by status and searching by name or handle.' })
   @ApiResponse({ status: 200, description: 'Paged list of artists' })
   list(@Query() query: ListArtistsDto) {
     return this.artists.list(query);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get artist by ID' })
+  @ApiOperation({ summary: 'Get artist by ID', description: 'Returns full artist details including bio, status, cover image, and portfolio works.' })
   @ApiParam({ name: 'id', description: 'Artist ID (cuid)' })
   @ApiResponse({ status: 200, description: 'Artist found' })
   @ApiResponse({ status: 404, description: 'Artist not found' })
@@ -106,6 +106,7 @@ export class ArtistsController {
   @Patch(':id')
   @ApiOperation({
     summary: 'Update artist (multipart: optional cover + optional new works)',
+    description: 'Updates artist profile fields and optionally replaces the cover image or adds new portfolio works. Accepts multipart/form-data.',
   })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
@@ -159,7 +160,7 @@ export class ArtistsController {
   }
 
   @Patch(':id/deactivate')
-  @ApiOperation({ summary: 'Deactivate artist (soft delete)' })
+  @ApiOperation({ summary: 'Deactivate artist (soft delete)', description: 'Sets the artist status to INACTIVE. The artist is hidden from public listings but data is retained.' })
   @ApiParam({ name: 'id', description: 'Artist ID (cuid)' })
   @ApiResponse({ status: 200, description: 'Artist deactivated' })
   @ApiResponse({ status: 404, description: 'Artist not found' })

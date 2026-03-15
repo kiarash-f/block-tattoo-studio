@@ -1,5 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { GoogleReviewsService } from './google-reviews.service';
 
 @ApiTags('Public / Reviews')
@@ -10,7 +10,9 @@ export class GoogleReviewsController {
   @Get('google')
   @ApiOperation({
     summary: 'Get cached Google reviews for the studio',
+    description: 'Returns cached Google Maps reviews for the studio. Results are refreshed periodically to avoid exceeding API quota.',
   })
+  @ApiResponse({ status: 200, description: 'List of Google reviews.' })
   getReviews() {
     return this.service.getReviews();
   }

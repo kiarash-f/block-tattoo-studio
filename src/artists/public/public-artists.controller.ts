@@ -13,6 +13,7 @@ export class PublicArtistsController {
   @ApiOperation({
     summary:
       'Lookbook: list artists that have published works (optional tag filter + preview latestWorks)',
+    description: 'Returns active artists who have at least one published work, including a preview of their latest works. Supports optional tag filtering and pagination.',
   })
   @ApiQuery({ name: 'q', required: false })
   @ApiQuery({ name: 'tag', required: false })
@@ -27,6 +28,7 @@ export class PublicArtistsController {
   @ApiOperation({
     summary:
       'Artist page: get artist profile + paginated published works in ONE request',
+    description: 'Returns full artist profile details along with a paginated list of their published portfolio works. Used to render the public artist page.',
   })
   @ApiParam({ name: 'slug', example: 'alex-ink' })
   @ApiQuery({ name: 'tag', required: false })
