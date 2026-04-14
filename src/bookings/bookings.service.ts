@@ -8,34 +8,33 @@ import { EmailService } from '../email/email.service';
 import {
   AssignmentRole,
   BookingStatus,
+  BookingType,
   CancelReason,
   Prisma,
+  UploadKind,
 } from '@prisma/client';
+import { MediaService } from '../media/media.service';
 import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake.dto';
 import { getUtcRangeForZonedDate } from '../common/time/zoned-date-range';
 
 const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
-  NEW: ['IN_REVIEW', 'NEEDS_INFO', 'APPROVED', 'REJECTED'],
-  IN_REVIEW: ['NEEDS_INFO', 'APPROVED', 'REJECTED'],
-  NEEDS_INFO: ['IN_REVIEW', 'APPROVED', 'REJECTED'],
-  APPROVED: ['COMPLETED', 'CANCELLED'],
-  COMPLETED: [],
-  REJECTED: [],
-  CANCELLED: [],
+  PENDING_CONSULT:  ['CONSULT_APPROVED', 'CANCELLED'],
+  CONSULT_APPROVED: ['CONSULT_NO_SHOW', 'CANCELLED'],
+  // TATTOO_SCHEDULED is set via scheduleTattooSession, not updateStatus
+  CONSULT_NO_SHOW:  [],
+  TATTOO_SCHEDULED: ['COMPLETED', 'CANCELLED'],
+  COMPLETED:        [],
+  CANCELLED:        [],
 };
 
-const REVIEWED_STATUSES: BookingStatus[] = [
-  'IN_REVIEW',
-  'NEEDS_INFO',
-  'APPROVED',
-  'REJECTED',
-];
+const REVIEWED_STATUSES: BookingStatus[] = ['CONSULT_APPROVED'];
 
 @Injectable()
 export class BookingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly media: MediaService,
   ) {}
 
   async list(params: {
@@ -114,6 +113,13 @@ export class BookingsService {
 
     const next = data.status;
 
+    // TATTOO_SCHEDULED is only set via scheduleTattooSession
+    if (next === BookingStatus.TATTOO_SCHEDULED) {
+      throw new BadRequestException(
+        'Use POST /admin/bookings/:id/schedule-tattoo to schedule the tattoo date',
+      );
+    }
+
     const allowedNext = ALLOWED_TRANSITIONS[current.status] ?? [];
     if (!allowedNext.includes(next) && current.status !== next) {
       throw new BadRequestException(
@@ -123,35 +129,33 @@ export class BookingsService {
 
     const now = new Date();
 
-    // Prevent completing / NO_SHOW before appointment time
-    if (
-      next === BookingStatus.COMPLETED ||
-      (next === BookingStatus.CANCELLED &&
-        data.cancelReason === CancelReason.NO_SHOW)
-    ) {
-      const primary = await this.prisma.bookingAssignment.findFirst({
-        where: { bookingRequestId: id, role: AssignmentRole.PRIMARY },
-        select: { startsAt: true },
+    // Prevent COMPLETED before tattoo session date
+    if (next === BookingStatus.COMPLETED) {
+      const session = await this.prisma.tattooSession.findFirst({
+        where: { bookingRequestId: id },
+        orderBy: { scheduledDate: 'asc' },
+        select: { scheduledDate: true },
       });
-
-      if (!primary?.startsAt) {
-        throw new BadRequestException(
-          'Cannot complete/no-show: PRIMARY assignment startsAt is missing',
-        );
+      if (!session) {
+        throw new BadRequestException('Cannot complete: no tattoo session scheduled');
       }
-      if (primary.startsAt > now) {
-        throw new BadRequestException(
-          'Cannot complete/no-show before the appointment time',
-        );
+      if (session.scheduledDate > now) {
+        throw new BadRequestException('Cannot complete before the tattoo session date');
       }
     }
 
     if (next === BookingStatus.CANCELLED && !data.cancelReason) {
-      data.cancelReason = CancelReason.OTHER; // or default NO_SHOW
+      data.cancelReason = CancelReason.OTHER;
     }
 
     const eventFields: Prisma.BookingRequestUpdateInput = {};
-    if (next === BookingStatus.APPROVED) eventFields.approvedAt = now;
+
+    if (next === BookingStatus.CONSULT_APPROVED) eventFields.approvedAt = now;
+
+    if (next === BookingStatus.CONSULT_NO_SHOW) {
+      eventFields.cancelledAt = now;
+      eventFields.cancelReason = CancelReason.NO_SHOW;
+    }
 
     if (next === BookingStatus.COMPLETED) {
       eventFields.completedAt = now;
@@ -167,7 +171,7 @@ export class BookingsService {
 
     const shouldSetReviewed = REVIEWED_STATUSES.includes(next);
 
-    const updated = await this.prisma.bookingRequest.update({
+    return this.prisma.bookingRequest.update({
       where: { id },
       data: {
         status: next,
@@ -175,25 +179,210 @@ export class BookingsService {
         internalStatusNote: data.internalStatusNote,
         ...eventFields,
         ...(shouldSetReviewed
-          ? {
-              reviewedAt: now,
-              reviewedByAdmin: { connect: { id: adminId } },
-            }
+          ? { reviewedAt: now, reviewedByAdmin: { connect: { id: adminId } } }
           : {}),
       },
       include: { client: { select: { email: true, firstName: true, lastName: true } } },
     });
+  }
 
-    if (next === BookingStatus.REJECTED && updated.client.email) {
-      this.email
-        .sendBookingRejected({
-          to: updated.client.email,
-          clientName: `${updated.client.firstName} ${updated.client.lastName}`.trim(),
-        })
-        .catch(() => void 0);
+  async scheduleTattooSession(
+    bookingRequestId: string,
+    data: {
+      scheduledDate: Date;
+      artistId: string;
+      stationId?: string;
+      durationNote?: string;
+      notes?: string;
+    },
+  ) {
+    const booking = await this.prisma.bookingRequest.findUniqueOrThrow({
+      where: { id: bookingRequestId },
+      select: { status: true },
+    });
+
+    if (booking.status !== BookingStatus.CONSULT_APPROVED) {
+      throw new BadRequestException(
+        `Can only schedule tattoo from CONSULT_APPROVED status (current: ${booking.status})`,
+      );
     }
 
-    return updated;
+    const artist = await this.prisma.artist.findUnique({
+      where: { id: data.artistId },
+      select: { id: true, status: true },
+    });
+    if (!artist || artist.status !== 'ACTIVE') {
+      throw new BadRequestException('Artist not found or inactive');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const session = await tx.tattooSession.create({
+        data: {
+          bookingRequestId,
+          artistId: data.artistId,
+          stationId: data.stationId,
+          scheduledDate: data.scheduledDate,
+          durationNote: data.durationNote,
+          notes: data.notes,
+        },
+      });
+
+      await tx.bookingRequest.update({
+        where: { id: bookingRequestId },
+        data: { status: BookingStatus.TATTOO_SCHEDULED },
+      });
+
+      return session;
+    });
+  }
+
+  async createWalkIn(
+    adminId: string,
+    data: {
+      client: {
+        firstName: string;
+        lastName: string;
+        email?: string;
+        phone?: string;
+        instagram?: string;
+      };
+      description: string;
+      tattooDate: Date;
+      artistId: string;
+      stationId?: string;
+      durationNote?: string;
+      placement?: string;
+      sizeDescription?: string;
+      styleNotes?: string;
+    },
+    files: Express.Multer.File[],
+  ) {
+    const artist = await this.prisma.artist.findUnique({
+      where: { id: data.artistId },
+      select: { id: true, status: true },
+    });
+    if (!artist || artist.status !== 'ACTIVE') {
+      throw new BadRequestException('Artist not found or inactive');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Upsert client
+      let clientRow = data.client.email
+        ? await tx.client.findFirst({ where: { email: data.client.email } })
+        : null;
+      if (!clientRow && data.client.phone) {
+        clientRow = await tx.client.findFirst({ where: { phone: data.client.phone } });
+      }
+
+      clientRow = clientRow
+        ? await tx.client.update({
+            where: { id: clientRow.id },
+            data: {
+              firstName: data.client.firstName,
+              lastName: data.client.lastName,
+              email: data.client.email,
+              phone: data.client.phone,
+              instagram: data.client.instagram,
+            },
+          })
+        : await tx.client.create({
+            data: {
+              firstName: data.client.firstName,
+              lastName: data.client.lastName,
+              email: data.client.email,
+              phone: data.client.phone,
+              instagram: data.client.instagram,
+            },
+          });
+
+      const booking = await tx.bookingRequest.create({
+        data: {
+          clientId: clientRow.id,
+          status: BookingStatus.TATTOO_SCHEDULED,
+          bookingType: BookingType.WALK_IN,
+          description: data.description,
+          budgetRange: 'UNDER_200', // walk-in default, admin can update
+          placement: data.placement,
+          sizeDescription: data.sizeDescription,
+          styleNotes: data.styleNotes,
+          studioChooses: false,
+          reviewedAt: new Date(),
+          reviewedByAdminId: adminId,
+          approvedAt: new Date(),
+        },
+      });
+
+      await tx.tattooSession.create({
+        data: {
+          bookingRequestId: booking.id,
+          artistId: data.artistId,
+          stationId: data.stationId,
+          scheduledDate: data.tattooDate,
+          durationNote: data.durationNote,
+        },
+      });
+
+      return { booking, client: clientRow };
+    });
+
+    // Upload reference images outside transaction
+    if (files?.length) {
+      for (const f of files) {
+        if (!f?.buffer) continue;
+        const uploaded = await this.media.uploadBuffer(f.buffer, {
+          folder: 'tattoo-studio/walk-in',
+          filename: f.originalname,
+        });
+        await this.prisma.upload.create({
+          data: {
+            bookingRequestId: result.booking.id,
+            kind: UploadKind.REFERENCE,
+            originalName: f.originalname,
+            mimeType: f.mimetype,
+            bytes: f.size,
+            cloudinaryPublicId: uploaded.publicId,
+            secureUrl: uploaded.secureUrl,
+          },
+        });
+      }
+    }
+
+    // Generate upload token for tablet (client can add more images)
+    const token = await this.generateUploadToken(result.booking.id, adminId);
+
+    return {
+      bookingId: result.booking.id,
+      clientId: result.client.id,
+      tattooDate: data.tattooDate,
+      uploadToken: token,
+    };
+  }
+
+  private async generateUploadToken(bookingRequestId: string, adminId: string) {
+    // Token generated directly via prisma to avoid circular dependency
+    const crypto = await import('crypto');
+    const argon2 = await import('argon2');
+
+    const secret = crypto.randomBytes(24).toString('base64url');
+    const pepper = process.env.BOOKING_LINK_TOKEN_PEPPER ?? '';
+    const secretHash = await argon2.hash(`${secret}:${pepper}`, {
+      type: argon2.argon2id,
+    });
+
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 4); // 4-hour window for tablet upload
+
+    const tokenRow = await this.prisma.bookingLinkToken.create({
+      data: {
+        bookingRequestId,
+        secretHash,
+        scopes: ['UPLOAD', 'VIEW'],
+        expiresAt,
+        createdByAdminId: adminId,
+      },
+    });
+
+    return `${tokenRow.id}.${secret}`;
   }
 
   async getPublicIntake(bookingRequestId: string) {
@@ -248,7 +437,7 @@ export class BookingsService {
 
     if (!booking) throw new NotFoundException('BookingRequest not found');
 
-    const ALLOWED_EDIT_STATUSES = new Set<BookingStatus>(['NEW', 'NEEDS_INFO']);
+    const ALLOWED_EDIT_STATUSES = new Set<BookingStatus>(['PENDING_CONSULT']);
     if (!ALLOWED_EDIT_STATUSES.has(booking.status)) {
       throw new BadRequestException(
         `This booking cannot be edited at its current status (${booking.status})`,

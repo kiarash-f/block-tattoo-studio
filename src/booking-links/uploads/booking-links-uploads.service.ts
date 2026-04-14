@@ -31,9 +31,9 @@ export class BookingLinksUploadsService {
     // ✅ Allow uploads while intake is open / review in progress.
     // Tune as you want. This matches your status enum.
     const ALLOWED_UPLOAD_STATUSES = new Set<BookingStatus>([
-      'NEW',
-      'NEEDS_INFO',
-      'IN_REVIEW',
+      'PENDING_CONSULT',
+      'CONSULT_APPROVED',
+      'TATTOO_SCHEDULED',
     ]);
 
     if (!ALLOWED_UPLOAD_STATUSES.has(booking.status)) {

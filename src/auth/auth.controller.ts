@@ -1,8 +1,9 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -16,5 +17,28 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
   adminLogin(@Body() dto: AdminLoginDto) {
     return this.auth.adminLogin(dto.email, dto.password);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('admin/me')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current admin', description: 'Returns the profile of the currently authenticated admin.' })
+  @ApiResponse({ status: 200, description: 'Admin profile.' })
+  @ApiResponse({ status: 401, description: 'Unauthorized.' })
+  getMe(@Req() req: any) {
+    return this.auth.getMe(req.user.sub as string);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post('admin/logout')
+  @HttpCode(200)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Admin logout',
+    description: 'Stateless logout — the server confirms sign-out. The client must discard the JWT token; it cannot be server-side invalidated without a token blocklist.',
+  })
+  @ApiResponse({ status: 200, description: 'Logged out successfully.' })
+  logout() {
+    return { message: 'Logged out successfully. Please discard your token.' };
   }
 }

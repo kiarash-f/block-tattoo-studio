@@ -85,9 +85,9 @@ export class SchedulingService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    if (booking.status !== BookingStatus.APPROVED) {
+    if (booking.status !== BookingStatus.PENDING_CONSULT) {
       throw new BadRequestException(
-        'Booking must be APPROVED before assigning a consult slot',
+        'Booking must be PENDING_CONSULT before assigning a consult slot',
       );
     }
 
@@ -163,9 +163,9 @@ export class SchedulingService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    if (booking.status !== BookingStatus.APPROVED) {
+    if (booking.status !== BookingStatus.CONSULT_APPROVED) {
       throw new BadRequestException(
-        'Booking must be APPROVED before creating a tattoo session',
+        'Booking must be CONSULT_APPROVED before creating a tattoo session',
       );
     }
 

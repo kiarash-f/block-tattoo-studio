@@ -5,11 +5,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AdminAppointmentsController } from './admin-appointments.controller';
 import { AdminAnalyticsModule } from './admin-analytics/admin-analytics.module';
 import { AdminBookingsModule } from './admin/admin-bookings.module';
+import { MediaModule } from '../media/media.module';
 
 @Module({
   controllers: [BookingsController, AdminAppointmentsController],
   providers: [BookingsService, PrismaService],
   exports: [BookingsService],
-  imports: [AdminAnalyticsModule, AdminBookingsModule],
+  imports: [AdminAnalyticsModule, AdminBookingsModule, MediaModule],
 })
 export class BookingsModule {}

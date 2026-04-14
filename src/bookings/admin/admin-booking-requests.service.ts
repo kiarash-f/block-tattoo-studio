@@ -22,9 +22,8 @@ export class AdminBookingRequestsService {
     });
     if (!br) throw new NotFoundException('BookingRequest not found');
 
-    // You can decide the allowed statuses. I recommend only APPROVED.
-    if (br.status !== BookingStatus.APPROVED) {
-      throw new BadRequestException('Only APPROVED bookings can be checked in');
+    if (br.status !== BookingStatus.TATTOO_SCHEDULED) {
+      throw new BadRequestException('Only TATTOO_SCHEDULED bookings can be checked in');
     }
 
     // Idempotent
@@ -87,9 +86,9 @@ export class AdminBookingRequestsService {
     });
     if (!br) throw new NotFoundException('BookingRequest not found');
 
-    if (br.status !== BookingStatus.APPROVED) {
+    if (br.status !== BookingStatus.TATTOO_SCHEDULED) {
       throw new BadRequestException(
-        'In-studio form can only be submitted for APPROVED bookings',
+        'In-studio form can only be submitted for TATTOO_SCHEDULED bookings',
       );
     }
 

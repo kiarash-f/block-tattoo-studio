@@ -111,19 +111,19 @@ export class ArtistsService {
   ) {
     const existing = await this.findOne(id);
 
-    const nextSlug =
-      dto.slug !== undefined
-        ? this.resolveSlug(
-            dto.slug,
-            dto.handle ?? existing.handle ?? undefined,
-            dto.displayName ?? existing.displayName,
-          )
-        : existing.slug ??
-          this.resolveSlug(
-            undefined,
-            dto.handle ?? existing.handle ?? undefined,
-            dto.displayName ?? existing.displayName,
-          );
+    const hasSlug = dto.slug !== undefined && dto.slug !== '';
+    const nextSlug = hasSlug
+      ? this.resolveSlug(
+          dto.slug,
+          dto.handle || existing.handle || undefined,
+          dto.displayName || existing.displayName,
+        )
+      : existing.slug ??
+        this.resolveSlug(
+          undefined,
+          dto.handle || existing.handle || undefined,
+          dto.displayName || existing.displayName,
+        );
 
     const coverFile = files.cover?.[0];
     const coverUrl = coverFile
@@ -133,19 +133,17 @@ export class ArtistsService {
     const workFiles = files.works ?? [];
     const worksMeta = this.parseWorksMeta(workFiles.length, dto.worksMeta);
 
+    const has = (v: string | undefined) => v !== undefined && v !== '';
+
     const data: Prisma.ArtistUpdateInput = {
-      ...(dto.displayName !== undefined
-        ? { displayName: dto.displayName.trim() }
-        : {}),
-      ...(dto.handle !== undefined ? { handle: dto.handle?.trim() } : {}),
-      ...(dto.slug !== undefined || !existing.slug ? { slug: nextSlug } : {}),
-      ...(dto.email !== undefined
-        ? { email: dto.email?.trim()?.toLowerCase() }
-        : {}),
-      ...(dto.phone !== undefined ? { phone: dto.phone?.trim() } : {}),
-      ...(dto.status !== undefined ? { status: dto.status } : {}),
-      ...(dto.bio !== undefined ? { bio: dto.bio } : {}),
-      ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
+      ...(has(dto.displayName) ? { displayName: dto.displayName!.trim() } : {}),
+      ...(has(dto.handle) ? { handle: dto.handle!.trim() } : {}),
+      ...(hasSlug || !existing.slug ? { slug: nextSlug } : {}),
+      ...(has(dto.email) ? { email: dto.email!.trim().toLowerCase() } : {}),
+      ...(has(dto.phone) ? { phone: dto.phone!.trim() } : {}),
+      ...(has(dto.status) ? { status: dto.status } : {}),
+      ...(has(dto.bio) ? { bio: dto.bio } : {}),
+      ...(has(dto.avatarUrl) ? { avatarUrl: dto.avatarUrl } : {}),
       ...(coverUrl ? { coverUrl } : {}),
     };
 

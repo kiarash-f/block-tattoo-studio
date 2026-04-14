@@ -99,8 +99,6 @@ export class PublicService {
   ) {
     const result = await this.prisma.$transaction(async (tx) => {
       const { client, bookingRequest } = dto;
-      const medicalDeclaration = dto.medicalDeclaration;
-      const consent = dto.consent;
 
       // 1) Find existing client by email, else phone
       let existing: {
@@ -172,6 +170,30 @@ export class PublicService {
         );
       }
 
+      // Validate and parse consultDate
+      const consultDateRaw = bookingRequest.consultDate;
+      const consultDate = new Date(consultDateRaw);
+      if (Number.isNaN(consultDate.getTime())) {
+        throw new BadRequestException('Invalid consultDate');
+      }
+      // Cannot book a consult in the past
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (consultDate < today) {
+        throw new BadRequestException('consultDate cannot be in the past');
+      }
+      // Sundays are closed (0 = Sunday)
+      if (consultDate.getDay() === 0) {
+        throw new BadRequestException('Studio is closed on Sundays');
+      }
+
+      // Upsert ConsultSlot for the chosen date
+      const consultSlot = await tx.consultSlot.upsert({
+        where: { date: consultDate },
+        create: { date: consultDate, maxCount: 3 },
+        update: {},
+      });
+
       // If client picked an artist, studioChooses can be false; otherwise default true
       const studioChooses = preferredArtistName
         ? (bookingRequest.studioChooses ?? false)
@@ -180,73 +202,40 @@ export class PublicService {
       const source: IntakeSource =
         (bookingRequest.source as IntakeSource) ?? IntakeSource.DIRECT;
 
-      // 3) Build Prisma create data
-      // ✅ medicalDeclaration/consent are conditional (optional)
-      const brCreateData: any = {
-        clientId: clientRow.id,
-
-        preferredDateFrom: preferredDateFrom ?? undefined,
-        preferredDateTo: preferredDateTo ?? undefined,
-        preferredTimeOfDay: mapPreferredTimeOfDayToPrisma(
-          bookingRequest.preferredTimeOfDay,
-        ),
-        preferredDaysNote: bookingRequest.preferredDaysNote ?? undefined,
-
-        description: bookingRequest.description,
-        budgetRange: mapBudgetRangeToPrisma(bookingRequest.budgetRange),
-        bookingType: mapBookingTypeToPrisma(bookingRequest.bookingType),
-
-        placement: bookingRequest.placement ?? undefined,
-        sizeDescription: bookingRequest.sizeDescription ?? undefined,
-        styleNotes: bookingRequest.styleNotes ?? undefined,
-        referencesNotes: bookingRequest.referencesNotes ?? undefined,
-
-        preferredArtistName,
-        studioChooses,
-
-        source,
-        utmCampaign: bookingRequest.utmCampaign ?? undefined,
-        utmAdset: bookingRequest.utmAdset ?? undefined,
-        utmAd: bookingRequest.utmAd ?? undefined,
-        referrer: bookingRequest.referrer ?? undefined,
-        landingPath: bookingRequest.landingPath ?? undefined,
-      };
-
-      if (medicalDeclaration) {
-        brCreateData.medicalDeclaration = {
-          create: {
-            hasAllergies: medicalDeclaration.hasAllergies,
-            allergiesDetails: medicalDeclaration.allergiesDetails ?? undefined,
-            hasSkinCondition: medicalDeclaration.hasSkinCondition,
-            skinConditionDetails:
-              medicalDeclaration.skinConditionDetails ?? undefined,
-            isPregnantOrNursing: medicalDeclaration.isPregnantOrNursing,
-            hasHeartCondition: medicalDeclaration.hasHeartCondition,
-            hasDiabetes: medicalDeclaration.hasDiabetes,
-            takesBloodThinners: medicalDeclaration.takesBloodThinners,
-            takesMedication: medicalDeclaration.takesMedication,
-            medicationDetails:
-              medicalDeclaration.medicationDetails ?? undefined,
-            otherNotes: medicalDeclaration.otherNotes ?? undefined,
-          },
-        };
-      }
-
-      if (consent) {
-        brCreateData.consent = {
-          create: {
-            isAdultConfirmed: consent.isAdultConfirmed,
-            termsAccepted: consent.termsAccepted,
-            privacyAccepted: consent.privacyAccepted,
-            fullName: consent.fullName ?? undefined,
-            signedAt: consent.signedAt ? new Date(consent.signedAt) : undefined,
-          },
-        };
-      }
-
-      // 4) Create booking request
+      // 3) Create booking request with PENDING_CONSULT status
       const br = await tx.bookingRequest.create({
-        data: brCreateData,
+        data: {
+          clientId: clientRow.id,
+          status: 'PENDING_CONSULT',
+          consultDate,
+          consultSlotId: consultSlot.id,
+
+          preferredDateFrom: preferredDateFrom ?? undefined,
+          preferredDateTo: preferredDateTo ?? undefined,
+          preferredTimeOfDay: mapPreferredTimeOfDayToPrisma(
+            bookingRequest.preferredTimeOfDay,
+          ),
+          preferredDaysNote: bookingRequest.preferredDaysNote ?? undefined,
+
+          description: bookingRequest.description,
+          budgetRange: mapBudgetRangeToPrisma(bookingRequest.budgetRange),
+          bookingType: mapBookingTypeToPrisma(bookingRequest.bookingType),
+
+          placement: bookingRequest.placement ?? undefined,
+          sizeDescription: bookingRequest.sizeDescription ?? undefined,
+          styleNotes: bookingRequest.styleNotes ?? undefined,
+          referencesNotes: bookingRequest.referencesNotes ?? undefined,
+
+          preferredArtistName,
+          studioChooses,
+
+          source,
+          utmCampaign: bookingRequest.utmCampaign ?? undefined,
+          utmAdset: bookingRequest.utmAdset ?? undefined,
+          utmAd: bookingRequest.utmAd ?? undefined,
+          referrer: bookingRequest.referrer ?? undefined,
+          landingPath: bookingRequest.landingPath ?? undefined,
+        },
       });
 
       // 5) Uploads (optional)
@@ -297,5 +286,55 @@ export class PublicService {
       status: result.status,
       createdAt: result.createdAt,
     };
+  }
+
+  async getMonthAvailability(month: string) {
+    // Validate format YYYY-MM
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException('month must be in YYYY-MM format');
+    }
+
+    const [year, mon] = month.split('-').map(Number);
+    const firstDay = new Date(year, mon - 1, 1);
+    const lastDay = new Date(year, mon, 0); // last day of month
+
+    // Fetch all ConsultSlots in this month with booking counts
+    const slots = await this.prisma.consultSlot.findMany({
+      where: {
+        date: { gte: firstDay, lte: lastDay },
+      },
+      include: {
+        _count: {
+          select: {
+            bookings: {
+              where: { status: { in: ['PENDING_CONSULT', 'CONSULT_APPROVED'] } },
+            },
+          },
+        },
+      },
+    });
+
+    const slotMap = new Map<string, number>();
+    for (const s of slots) {
+      const key = s.date.toISOString().slice(0, 10);
+      slotMap.set(key, s._count.bookings);
+    }
+
+    const SOFT_LIMIT = 3;
+    const days: { date: string; status: 'closed' | 'open' | 'busy'; count: number }[] = [];
+
+    for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const isSunday = d.getDay() === 0;
+      const count = slotMap.get(dateStr) ?? 0;
+
+      days.push({
+        date: dateStr,
+        status: isSunday ? 'closed' : count >= SOFT_LIMIT ? 'busy' : 'open',
+        count,
+      });
+    }
+
+    return { month, days };
   }
 }

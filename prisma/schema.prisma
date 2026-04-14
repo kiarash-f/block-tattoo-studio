@@ -40,13 +40,12 @@ enum BookingLinkStatus {
 }
 
 enum BookingStatus {
-  NEW
-  IN_REVIEW
-  NEEDS_INFO
-  APPROVED
-  REJECTED
-  CANCELLED
+  PENDING_CONSULT
+  CONSULT_APPROVED
+  CONSULT_NO_SHOW
+  TATTOO_SCHEDULED
   COMPLETED
+  CANCELLED
 }
 
 enum BudgetRange {
@@ -149,7 +148,7 @@ model Client {
 
 model BookingRequest {
   id     String        @id @default(uuid())
-  status BookingStatus @default(NEW)
+  status BookingStatus @default(PENDING_CONSULT)
 
   // client relation
   clientId String
@@ -193,7 +192,8 @@ model BookingRequest {
   assignments BookingAssignment[]
   bookingType BookingType         @default(APPOINTMENT)
 
-  // consult slot (phase 5)
+  // consult slot
+  consultDate   DateTime?    @db.Date
   consultSlotId String?
   consultSlot   ConsultSlot? @relation("ConsultSlotBookings", fields: [consultSlotId], references: [id], onDelete: SetNull)
 

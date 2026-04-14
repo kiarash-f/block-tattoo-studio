@@ -144,6 +144,9 @@ export class BookingRequestDto {
   @IsEnum(BookingType)
   bookingType?: BookingType;
 
+  @IsDateString()
+  consultDate: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(2000)
@@ -239,14 +242,4 @@ export class CreateBookingIntakeDto {
   @ValidateNested()
   @Type(() => BookingRequestDto)
   bookingRequest: BookingRequestDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => MedicalDeclarationDto)
-  medicalDeclaration: MedicalDeclarationDto;
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => ConsentDto)
-  consent: ConsentDto;
 }
