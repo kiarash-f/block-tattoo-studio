@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, PublishStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MediaService } from '../media/media.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
 import { ListArticlesDto } from './dto/list-articles.dto';
@@ -12,12 +13,26 @@ import { slugify } from './utils/slugify';
 
 @Injectable()
 export class ArticlesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: MediaService,
+  ) {}
 
   // ─── Admin ────────────────────────────────────────────────────────────────
 
-  async create(dto: CreateArticleDto, authorId: string) {
+  async create(
+    dto: CreateArticleDto,
+    authorId: string,
+    coverFile?: Express.Multer.File,
+  ) {
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.title);
+
+    const coverUrl = coverFile
+      ? (await this.media.uploadBuffer(coverFile.buffer, {
+          folder: 'articles/covers',
+          filename: dto.title.trim(),
+        })).secureUrl
+      : dto.coverUrl;
 
     return this.prisma.article.create({
       data: {
@@ -25,7 +40,7 @@ export class ArticlesService {
         slug,
         excerpt: dto.excerpt?.trim(),
         content: dto.content,
-        coverUrl: dto.coverUrl,
+        coverUrl,
         tags: dto.tags ?? [],
         status: dto.status ?? PublishStatus.DRAFT,
         authorId,
@@ -87,7 +102,7 @@ export class ArticlesService {
     return article;
   }
 
-  async update(id: string, dto: UpdateArticleDto) {
+  async update(id: string, dto: UpdateArticleDto, coverFile?: Express.Multer.File) {
     await this.findOne(id);
 
     const data: Prisma.ArticleUpdateInput = {};
@@ -101,7 +116,15 @@ export class ArticlesService {
     }
     if (dto.excerpt !== undefined) data.excerpt = dto.excerpt?.trim();
     if (dto.content !== undefined) data.content = dto.content;
-    if (dto.coverUrl !== undefined) data.coverUrl = dto.coverUrl;
+    if (coverFile) {
+      data.coverUrl = (
+        await this.media.uploadBuffer(coverFile.buffer, {
+          folder: 'articles/covers',
+        })
+      ).secureUrl;
+    } else if (dto.coverUrl !== undefined) {
+      data.coverUrl = dto.coverUrl;
+    }
     if (dto.tags !== undefined) data.tags = dto.tags;
     if (dto.status !== undefined) data.status = dto.status;
 

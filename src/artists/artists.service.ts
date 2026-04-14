@@ -42,6 +42,14 @@ export class ArtistsService {
 
     const now = new Date();
 
+    // Upload works BEFORE the transaction to avoid P2028 timeout
+    const uploadedWorks =
+      workFiles.length > 0
+        ? await Promise.all(
+            workFiles.map((f) => this.uploadToCloudinary(f, 'artists/works')),
+          )
+        : [];
+
     return this.prisma.$transaction(async (tx) => {
       await this.assertUniqueFields(
         {
@@ -67,12 +75,8 @@ export class ArtistsService {
         },
       });
 
-      if (workFiles.length > 0) {
-        const uploaded = await Promise.all(
-          workFiles.map((f) => this.uploadToCloudinary(f, 'artists/works')),
-        );
-
-        const createData: Prisma.ArtistWorkCreateManyInput[] = uploaded.map(
+      if (uploadedWorks.length > 0) {
+        const createData: Prisma.ArtistWorkCreateManyInput[] = uploadedWorks.map(
           (u, idx) => {
             const meta = worksMeta[idx];
             return {
@@ -83,8 +87,6 @@ export class ArtistsService {
                 'Untitled',
               coverUrl: u.url,
               tags: this.normalizeTags(meta?.tags),
-
-              // AUTO-PUBLISH
               status: PublishStatus.PUBLISHED,
               publishedAt: now,
             };
@@ -149,6 +151,14 @@ export class ArtistsService {
 
     const now = new Date();
 
+    // Upload works BEFORE the transaction to avoid P2028 timeout
+    const uploadedWorks =
+      workFiles.length > 0
+        ? await Promise.all(
+            workFiles.map((f) => this.uploadToCloudinary(f, 'artists/works')),
+          )
+        : [];
+
     return this.prisma.$transaction(async (tx) => {
       const handle = typeof data.handle === 'string' ? data.handle : undefined;
       const email = typeof data.email === 'string' ? data.email : undefined;
@@ -161,12 +171,8 @@ export class ArtistsService {
         data,
       });
 
-      if (workFiles.length > 0) {
-        const uploaded = await Promise.all(
-          workFiles.map((f) => this.uploadToCloudinary(f, 'artists/works')),
-        );
-
-        const createData: Prisma.ArtistWorkCreateManyInput[] = uploaded.map(
+      if (uploadedWorks.length > 0) {
+        const createData: Prisma.ArtistWorkCreateManyInput[] = uploadedWorks.map(
           (u, idx) => {
             const meta = worksMeta[idx];
             return {
@@ -177,8 +183,6 @@ export class ArtistsService {
                 'Untitled',
               coverUrl: u.url,
               tags: this.normalizeTags(meta?.tags),
-
-              // AUTO-PUBLISH
               status: PublishStatus.PUBLISHED,
               publishedAt: now,
             };

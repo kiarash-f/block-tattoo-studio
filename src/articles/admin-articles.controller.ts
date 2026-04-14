@@ -8,16 +8,22 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiParam,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ArticlesService } from './articles.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
@@ -32,9 +38,36 @@ export class AdminArticlesController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new article (draft by default)', description: 'Creates a new blog/news article in DRAFT status. The article is not publicly visible until published.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', example: 'How to Care for Your New Tattoo' },
+        slug: { type: 'string' },
+        excerpt: { type: 'string' },
+        content: { type: 'string' },
+        coverUrl: { type: 'string', description: 'URL fallback if no file is uploaded' },
+        tags: { type: 'array', items: { type: 'string' } },
+        status: { type: 'string', enum: ['DRAFT', 'PUBLISHED'] },
+        cover: { type: 'string', format: 'binary', description: 'Cover image file' },
+      },
+      required: ['title', 'content'],
+    },
+  })
   @ApiResponse({ status: 201, description: 'Article created.' })
-  create(@Body() dto: CreateArticleDto, @Req() req: any) {
-    return this.service.create(dto, req.user.sub);
+  @UseInterceptors(
+    FileInterceptor('cover', {
+      storage: memoryStorage(),
+      limits: { fileSize: 15 * 1024 * 1024 },
+    }),
+  )
+  create(
+    @Body() dto: CreateArticleDto,
+    @Req() req: any,
+    @UploadedFile() cover?: Express.Multer.File,
+  ) {
+    return this.service.create(dto, req.user.sub, cover);
   }
 
   @Get()
@@ -54,12 +87,38 @@ export class AdminArticlesController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update article', description: 'Updates article content, title, slug, or metadata fields.' })
+  @ApiOperation({ summary: 'Update article', description: 'Updates article content, title, slug, or metadata fields. Optionally replaces the cover image.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        slug: { type: 'string' },
+        excerpt: { type: 'string' },
+        content: { type: 'string' },
+        coverUrl: { type: 'string', description: 'URL fallback if no file is uploaded' },
+        tags: { type: 'array', items: { type: 'string' } },
+        status: { type: 'string', enum: ['DRAFT', 'PUBLISHED'] },
+        cover: { type: 'string', format: 'binary', description: 'Replaces the current cover image' },
+      },
+    },
+  })
   @ApiParam({ name: 'id', description: 'Article ID (cuid)' })
   @ApiResponse({ status: 200, description: 'Article updated.' })
   @ApiResponse({ status: 404, description: 'Article not found.' })
-  update(@Param('id') id: string, @Body() dto: UpdateArticleDto) {
-    return this.service.update(id, dto);
+  @UseInterceptors(
+    FileInterceptor('cover', {
+      storage: memoryStorage(),
+      limits: { fileSize: 15 * 1024 * 1024 },
+    }),
+  )
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateArticleDto,
+    @UploadedFile() cover?: Express.Multer.File,
+  ) {
+    return this.service.update(id, dto, cover);
   }
 
   @Post(':id/publish')
