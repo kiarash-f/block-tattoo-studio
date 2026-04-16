@@ -102,6 +102,13 @@ enum PublishStatus {
   PUBLISHED
 }
 
+enum GuestBookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  COMPLETED
+  NO_SHOW
+}
+
 //
 // Models
 //
@@ -464,6 +471,37 @@ model ConsultSlot {
 
   @@unique([date])
   @@index([date])
+}
+
+// ─── Phase 10: Guest Artist Station Booking ──────────────────────────────────
+
+model StationConfig {
+  id                     String   @id @default(cuid())
+  totalTables            Int
+  pricePerDay            Float
+  monthlyDiscountPercent Float    @default(10)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model GuestArtistBooking {
+  id             String             @id @default(cuid())
+  name           String
+  phone          String
+  email          String
+  startDate      DateTime           @db.Date
+  endDate        DateTime           @db.Date
+  numberOfTables Int
+  totalPrice     Float
+  discountApplied Float
+  acknowledgment Boolean
+  status         GuestBookingStatus @default(PENDING_PAYMENT)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([status])
+  @@index([startDate, endDate])
+  @@index([email])
 }
 
 model TattooSession {

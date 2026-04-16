@@ -1,6 +1,19 @@
-import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AdminLoginDto } from './dto/admin-login.dto';
@@ -12,8 +25,14 @@ export class AuthController {
 
   @Throttle({ default: { limit: 10, ttl: 60 } })
   @Post('admin/login')
-  @ApiOperation({ summary: 'Admin login', description: 'Authenticate as admin and receive a JWT token.' })
-  @ApiResponse({ status: 201, description: 'Login successful. Returns JWT token.' })
+  @ApiOperation({
+    summary: 'Admin login',
+    description: 'Authenticate as admin and receive a JWT token.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Login successful. Returns JWT token.',
+  })
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
   adminLogin(@Body() dto: AdminLoginDto) {
     return this.auth.adminLogin(dto.email, dto.password);
@@ -21,8 +40,11 @@ export class AuthController {
 
   @UseGuards(AuthGuard('jwt'))
   @Get('admin/me')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current admin', description: 'Returns the profile of the currently authenticated admin.' })
+  @ApiBearerAuth('admin-jwt')
+  @ApiOperation({
+    summary: 'Get current admin',
+    description: 'Returns the profile of the currently authenticated admin.',
+  })
   @ApiResponse({ status: 200, description: 'Admin profile.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   getMe(@Req() req: any) {
@@ -32,10 +54,11 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt'))
   @Post('admin/logout')
   @HttpCode(200)
-  @ApiBearerAuth()
+  @ApiBearerAuth('admin-jwt')
   @ApiOperation({
     summary: 'Admin logout',
-    description: 'Stateless logout — the server confirms sign-out. The client must discard the JWT token; it cannot be server-side invalidated without a token blocklist.',
+    description:
+      'Stateless logout — the server confirms sign-out. The client must discard the JWT token; it cannot be server-side invalidated without a token blocklist.',
   })
   @ApiResponse({ status: 200, description: 'Logged out successfully.' })
   logout() {

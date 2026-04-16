@@ -121,14 +121,17 @@ export class GoogleReviewsService {
       };
     }
 
-    const reviews: GoogleReview[] = (json.result.reviews ?? []).map((r) => ({
-      authorName: r.author_name,
-      authorPhotoUrl: r.profile_photo_url,
-      rating: r.rating,
-      text: r.text,
-      time: r.time,
-      relativeTimeDescription: r.relative_time_description,
-    }));
+    const reviews: GoogleReview[] = (json.result.reviews ?? [])
+      .filter((r) => r.text?.trim())
+      .slice(0, 5)
+      .map((r) => ({
+        authorName: r.author_name,
+        authorPhotoUrl: r.profile_photo_url,
+        rating: r.rating,
+        text: r.text,
+        time: r.time,
+        relativeTimeDescription: r.relative_time_description,
+      }));
 
     return {
       rating: json.result.rating ?? 0,

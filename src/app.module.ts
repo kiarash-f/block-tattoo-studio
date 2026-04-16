@@ -21,6 +21,8 @@ import { GoogleReviewsModule } from './google-reviews/google-reviews.module';
 import { SchedulingModule } from './scheduling/scheduling.module';
 import { EmailModule } from './email/email.module';
 import { ChatModule } from './chat/chat.module';
+import { StationConfigModule } from './station-config/station-config.module';
+import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-bookings.module';
 
 @Module({
   imports: [
@@ -74,6 +76,8 @@ import { ChatModule } from './chat/chat.module';
     SchedulingModule,
     EmailModule,
     ChatModule,
+    StationConfigModule,
+    GuestArtistBookingsModule,
   ],
 })
 export class AppModule {}

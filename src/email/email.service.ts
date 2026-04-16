@@ -26,6 +26,17 @@ export interface SessionReminderData {
   artistName: string;
 }
 
+export interface GuestArtistBookingConfirmationData {
+  to: string;
+  artistName: string;
+  startDate: Date;
+  endDate: Date;
+  numberOfTables: number;
+  numberOfDays: number;
+  totalPrice: number;
+  discountPercent: number;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -188,6 +199,103 @@ export class EmailService {
       </p>
       <p style="color:#444;line-height:1.7;margin:0;">
         We appreciate your understanding and hope to work with you in the future.
+      </p>
+    `);
+
+    await this.send(to, subject, html);
+  }
+
+  async sendGuestArtistBookingConfirmation(
+    data: GuestArtistBookingConfirmationData,
+  ): Promise<void> {
+    const {
+      to,
+      artistName,
+      startDate,
+      endDate,
+      numberOfTables,
+      numberOfDays,
+      totalPrice,
+      discountPercent,
+    } = data;
+
+    const subject = `Your guest artist booking is confirmed — ${this.studioName}`;
+
+    const fmt = (d: Date) =>
+      d.toLocaleDateString('en-GB', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+
+    const discountRow =
+      discountPercent > 0
+        ? `<tr>
+            <td style="font-size:13px;color:#666;padding-top:12px;padding-bottom:4px;">Discount Applied</td>
+          </tr>
+          <tr>
+            <td style="font-size:15px;color:#111;">${discountPercent}% monthly discount</td>
+          </tr>`
+        : '';
+
+    const html = this.wrap(`
+      <h2 style="margin:0 0 16px;color:#111;font-size:22px;">Booking Confirmed, ${artistName}!</h2>
+      <p style="color:#444;line-height:1.7;margin:0 0 16px;">
+        We're excited to have you at ${this.studioName}. Here's a summary of your guest artist booking:
+      </p>
+
+      <table cellpadding="0" cellspacing="0" style="background:#f5f5f5;border-radius:6px;padding:16px 20px;margin:24px 0;width:100%;">
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">Guest Artist</td>
+        </tr>
+        <tr>
+          <td style="font-size:16px;font-weight:bold;color:#111;padding-bottom:12px;">${artistName}</td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">Start Date</td>
+        </tr>
+        <tr>
+          <td style="font-size:15px;color:#111;padding-bottom:12px;">${fmt(startDate)}</td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">End Date</td>
+        </tr>
+        <tr>
+          <td style="font-size:15px;color:#111;padding-bottom:12px;">${fmt(endDate)}</td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">Duration</td>
+        </tr>
+        <tr>
+          <td style="font-size:15px;color:#111;padding-bottom:12px;">${numberOfDays} day${numberOfDays !== 1 ? 's' : ''}</td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">Tables Reserved</td>
+        </tr>
+        <tr>
+          <td style="font-size:15px;color:#111;padding-bottom:12px;">${numberOfTables} table${numberOfTables !== 1 ? 's' : ''} per day</td>
+        </tr>
+        ${discountRow}
+        <tr>
+          <td style="font-size:13px;color:#666;padding-top:12px;padding-bottom:4px;">Total Price</td>
+        </tr>
+        <tr>
+          <td style="font-size:20px;font-weight:bold;color:#111;">€${totalPrice.toFixed(2)}</td>
+        </tr>
+      </table>
+
+      <p style="color:#444;line-height:1.7;margin:0 0 12px;">
+        <strong>Important — please read before arrival:</strong>
+      </p>
+      <ul style="color:#444;line-height:1.9;margin:0 0 16px;padding-left:20px;">
+        <li>You must bring a valid <strong>health certificate</strong> and <strong>work permit</strong> on your first day.</li>
+        <li>If your documents are found to be invalid upon arrival, your booking cannot proceed and <strong>payment is non-refundable</strong>.</li>
+        <li>Please arrive on time and respect the studio's rules and shared spaces.</li>
+      </ul>
+
+      <p style="color:#444;line-height:1.7;margin:0;">
+        If you have any questions, feel free to contact us directly. We look forward to working with you!
       </p>
     `);
 
