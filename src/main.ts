@@ -6,7 +6,9 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
 import helmet from 'helmet';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true makes req.rawBody (Buffer) available — required for
+  // Shopify webhook HMAC-SHA256 verification at POST /webhooks/shopify/payment
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.enableCors({
     origin: ['http://localhost:3000'],

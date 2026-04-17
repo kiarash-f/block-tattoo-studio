@@ -1,18 +1,16 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { GuestBookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { EmailService } from '../email/email.service';
+import { ShopifyService } from '../shopify/shopify.service';
 import { StationConfigService } from '../station-config/station-config.service';
 import { CreateGuestBookingDto } from './dto/create-guest-booking.dto';
 import { UpdateGuestBookingDto } from './dto/update-guest-booking.dto';
 import { ListGuestBookingsQueryDto } from './dto/list-guest-bookings.query.dto';
-
-// Plug in the real Shopify URL when ready
-const SHOPIFY_CHECKOUT_URL = '';
 
 // Statuses that count against availability
 const ACTIVE_STATUSES: GuestBookingStatus[] = [
@@ -44,9 +42,11 @@ function* eachDay(start: Date, end: Date): Generator<Date> {
 
 @Injectable()
 export class GuestArtistBookingsService {
+  private readonly logger = new Logger(GuestArtistBookingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
-    private readonly email: EmailService,
+    private readonly shopify: ShopifyService,
     private readonly configSvc: StationConfigService,
   ) {}
 
@@ -62,7 +62,6 @@ export class GuestArtistBookingsService {
 
     const config = await this.configSvc.get();
 
-    // Fetch all active bookings that overlap the requested range
     const overlapping = await this.prisma.guestArtistBooking.findMany({
       where: {
         status: { in: ACTIVE_STATUSES },
@@ -72,7 +71,6 @@ export class GuestArtistBookingsService {
       select: { startDate: true, endDate: true, numberOfTables: true },
     });
 
-    // Build a map: dateKey → bookedTables
     const bookedMap = new Map<string, number>();
     for (const b of overlapping) {
       for (const day of eachDay(b.startDate, b.endDate)) {
@@ -156,39 +154,48 @@ export class GuestArtistBookingsService {
       (config.pricePerDay * dto.numberOfTables * numberOfDays * multiplier).toFixed(2),
     );
 
-    // ── Persist ───────────────────────────────────────────────────────────────
+    // ── Persist booking ───────────────────────────────────────────────────────
     const booking = await this.prisma.guestArtistBooking.create({
       data: {
-        name:           dto.name,
-        phone:          dto.phone,
-        email:          dto.email,
+        name:            dto.name,
+        phone:           dto.phone,
+        email:           dto.email,
         startDate,
         endDate,
-        numberOfTables: dto.numberOfTables,
+        numberOfTables:  dto.numberOfTables,
         totalPrice,
         discountApplied: discountPercent,
-        acknowledgment: dto.acknowledgment,
-        status:         GuestBookingStatus.PENDING_PAYMENT,
+        acknowledgment:  dto.acknowledgment,
+        status:          GuestBookingStatus.PENDING_PAYMENT,
       },
     });
 
-    // ── Email ─────────────────────────────────────────────────────────────────
-    this.email
-      .sendGuestArtistBookingConfirmation({
-        to:             dto.email,
-        artistName:     dto.name,
-        startDate,
-        endDate,
-        numberOfTables: dto.numberOfTables,
-        numberOfDays,
-        totalPrice,
-        discountPercent,
-      })
-      .catch(() => void 0);
+    // ── Create Shopify draft order ────────────────────────────────────────────
+    const { draftOrderId, invoiceUrl } = await this.shopify.createDraftOrder({
+      guestName:      dto.name,
+      email:          dto.email,
+      totalPrice,
+      bookingId:      booking.id,
+      numberOfTables: dto.numberOfTables,
+      numberOfDays,
+      startDate,
+      endDate,
+    });
+
+    // ── Attach Shopify IDs to the booking ─────────────────────────────────────
+    const updatedBooking = await this.prisma.guestArtistBooking.update({
+      where: { id: booking.id },
+      data: {
+        shopifyDraftOrderId: draftOrderId,
+        shopifyInvoiceUrl:   invoiceUrl,
+      },
+    });
+
+    // Confirmation email is sent by the webhook handler once payment is confirmed.
 
     return {
-      booking,
-      shopifyCheckoutUrl: SHOPIFY_CHECKOUT_URL,
+      booking:          updatedBooking,
+      shopifyInvoiceUrl: invoiceUrl,
     };
   }
 
@@ -200,7 +207,6 @@ export class GuestArtistBookingsService {
     if (query.status) where.status = query.status;
 
     if (query.from || query.to) {
-      // Bookings that overlap the given date window
       if (query.from) where.endDate   = { gte: parseDate(query.from) };
       if (query.to)   where.startDate = { ...(where.startDate as any), lte: parseDate(query.to) };
     }
@@ -227,12 +233,12 @@ export class GuestArtistBookingsService {
     const existing = await this.prisma.guestArtistBooking.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Guest booking not found');
 
-    const needsRecalc = dto.startDate !== undefined ||
-                        dto.endDate   !== undefined ||
+    const needsRecalc = dto.startDate     !== undefined ||
+                        dto.endDate       !== undefined ||
                         dto.numberOfTables !== undefined;
 
-    const startDate     = dto.startDate     ? parseDate(dto.startDate)     : existing.startDate;
-    const endDate       = dto.endDate       ? parseDate(dto.endDate)       : existing.endDate;
+    const startDate      = dto.startDate      ? parseDate(dto.startDate)      : existing.startDate;
+    const endDate        = dto.endDate        ? parseDate(dto.endDate)        : existing.endDate;
     const numberOfTables = dto.numberOfTables ?? existing.numberOfTables;
 
     if (endDate < startDate) {
@@ -243,9 +249,9 @@ export class GuestArtistBookingsService {
     let discountApplied = existing.discountApplied;
 
     if (needsRecalc) {
-      const config = await this.configSvc.get();
-      const numberOfDays    = countDays(startDate, endDate);
-      const applyDiscount   = numberOfDays >= 30;
+      const config        = await this.configSvc.get();
+      const numberOfDays  = countDays(startDate, endDate);
+      const applyDiscount = numberOfDays >= 30;
       const discountPercent = applyDiscount ? config.monthlyDiscountPercent : 0;
       discountApplied = discountPercent;
       totalPrice = parseFloat(
@@ -256,14 +262,14 @@ export class GuestArtistBookingsService {
     return this.prisma.guestArtistBooking.update({
       where: { id },
       data: {
-        ...(dto.name           !== undefined ? { name: dto.name }                     : {}),
-        ...(dto.phone          !== undefined ? { phone: dto.phone }                   : {}),
-        ...(dto.email          !== undefined ? { email: dto.email }                   : {}),
-        ...(dto.status         !== undefined ? { status: dto.status }                 : {}),
-        ...(dto.startDate      !== undefined ? { startDate }                          : {}),
-        ...(dto.endDate        !== undefined ? { endDate }                            : {}),
-        ...(dto.numberOfTables !== undefined ? { numberOfTables }                     : {}),
-        ...(needsRecalc                      ? { totalPrice, discountApplied }        : {}),
+        ...(dto.name           !== undefined ? { name: dto.name }             : {}),
+        ...(dto.phone          !== undefined ? { phone: dto.phone }           : {}),
+        ...(dto.email          !== undefined ? { email: dto.email }           : {}),
+        ...(dto.status         !== undefined ? { status: dto.status }         : {}),
+        ...(dto.startDate      !== undefined ? { startDate }                  : {}),
+        ...(dto.endDate        !== undefined ? { endDate }                    : {}),
+        ...(dto.numberOfTables !== undefined ? { numberOfTables }             : {}),
+        ...(needsRecalc                      ? { totalPrice, discountApplied } : {}),
       },
     });
   }

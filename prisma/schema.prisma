@@ -107,6 +107,7 @@ enum GuestBookingStatus {
   CONFIRMED
   COMPLETED
   NO_SHOW
+  EXPIRED
 }
 
 //
@@ -495,6 +496,8 @@ model GuestArtistBooking {
   totalPrice     Float
   discountApplied Float
   acknowledgment Boolean
+  shopifyDraftOrderId String?
+  shopifyInvoiceUrl   String?
   status         GuestBookingStatus @default(PENDING_PAYMENT)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt

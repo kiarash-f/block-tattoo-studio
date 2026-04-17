@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
+import { ScheduleModule } from '@nestjs/schedule';
 import { createKeyv } from '@keyv/redis';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -22,7 +23,9 @@ import { SchedulingModule } from './scheduling/scheduling.module';
 import { EmailModule } from './email/email.module';
 import { ChatModule } from './chat/chat.module';
 import { StationConfigModule } from './station-config/station-config.module';
+import { ShopifyModule } from './shopify/shopify.module';
 import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-bookings.module';
+import { ShopifyWebhookModule } from './shopify-webhook/shopify-webhook.module';
 
 @Module({
   imports: [
@@ -30,6 +33,7 @@ import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
+    ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([
       {
         ttl: 60,
@@ -77,7 +81,9 @@ import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-
     EmailModule,
     ChatModule,
     StationConfigModule,
+    ShopifyModule,
     GuestArtistBookingsModule,
+    ShopifyWebhookModule,
   ],
 })
 export class AppModule {}
