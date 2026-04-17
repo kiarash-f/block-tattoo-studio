@@ -1,98 +1,157 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Block Tattoo Studio — Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A production-ready REST API backend for a tattoo studio, built with NestJS and TypeScript. Handles the full client journey from online booking intake through consultation, scheduling, and in-studio session management.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Features
 
-## Description
+- **Two-step booking flow** — Clients submit an intake form; the studio reviews it, schedules a consultation, then assigns a tattoo session. Each stage has its own status lifecycle (`PENDING_CONSULT` → `CONSULT_APPROVED` → `TATTOO_SCHEDULED` → `COMPLETED`).
+- **Secure booking links** — Scoped, time-limited token links allow clients to upload reference images or continue their intake without requiring an account.
+- **Artist management** — Artist profiles with portfolios (works), availability, and assignment roles (primary, secondary, assistant, guest).
+- **Guest artist system** — External artists can book studio stations by the day or week, with automatic pricing and discount calculation.
+- **AI chat widget** — AI-powered chat assistant via the Anthropic SDK (Claude) for visitor enquiries.
+- **Studio stations** — Station/room management with assignment tracking per booking.
+- **Scheduling** — Consult slots with max capacity, tattoo session scheduling with duration tracking.
+- **In-studio forms** — Medical declaration and consent forms collected at the studio, linked to the booking with admin audit trail.
+- **Media uploads** — Reference images and artwork stored via Cloudinary.
+- **Email notifications** — Transactional emails via Resend.
+- **Google Reviews integration** — Fetch and cache Google review data.
+- **Articles / blog** — Draft and published articles authored by admin users.
+- **Admin user system** — Separate admin auth with JWT, full audit trail on booking reviews and form submissions.
+- **Redis caching** — Response caching with `@nestjs/cache-manager` + Keyv Redis adapter.
+- **Swagger API docs** — Auto-generated OpenAPI documentation at `/api`.
+- **Rate limiting** — Request throttling via `@nestjs/throttler`.
+- **Health check** — `/health` endpoint for uptime monitoring.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## Tech Stack
 
-## Project setup
+| Layer | Technology |
+|---|---|
+| Framework | NestJS 11 (Node.js) |
+| Language | TypeScript 5 |
+| Database | PostgreSQL |
+| ORM | Prisma 6 |
+| Auth | JWT + Passport (`passport-jwt`) |
+| Password hashing | Argon2 / bcrypt |
+| AI | Anthropic SDK (`@anthropic-ai/sdk`) |
+| File storage | Cloudinary |
+| Email | Resend |
+| Caching | Redis (`@keyv/redis` + `cache-manager-redis-yet`) |
+| Validation | `class-validator` + `class-transformer` |
+| Config validation | Joi |
+| Date handling | Luxon |
+| API docs | Swagger (`@nestjs/swagger`) |
+| Rate limiting | `@nestjs/throttler` |
+| Containerisation | Docker |
 
-```bash
-$ npm install
+## Project Structure
+
+```
+src/
+├── admin-users/           # Admin authentication and user management
+├── artists/               # Artist profiles and portfolio works
+├── articles/              # Blog/news articles (draft/published)
+├── auth/                  # JWT auth, guards, strategies
+├── booking-assignments/   # Assign artists + stations to bookings
+├── booking-links/         # Scoped token links for client uploads/intake
+├── bookings/              # Core booking lifecycle and intake form
+├── chat/                  # AI chat widget (Anthropic SDK)
+├── common/                # Shared pipes, filters, interceptors
+├── config/                # Environment config with Joi validation
+├── email/                 # Transactional email service (Resend)
+├── google-reviews/        # Google Reviews API integration
+├── guest-artist-bookings/ # Station rental for visiting artists
+├── health/                # Health check endpoint
+├── media/                 # Cloudinary file upload service
+├── prisma/                # PrismaService (injectable DB client)
+├── scheduling/            # Consult slots + tattoo session scheduling
+├── station-config/        # Pricing config for guest artist stations
+├── studio-stations/       # Studio room/station management
+└── works/                 # Artist portfolio work entries
+prisma/
+├── schema.prisma          # Full database schema
+└── migrations/            # Prisma migration history
 ```
 
-## Compile and run the project
+## Getting Started
+
+### Prerequisites
+
+- Node.js 20+
+- PostgreSQL database
+- Redis instance
+- Cloudinary account
+- Resend account (for email)
+- Anthropic API key (for AI chat)
+
+### Installation
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone https://github.com/kiarash-f/block-tattoo-studio.git
+cd block-tattoo-studio
+npm install
 ```
 
-## Run tests
+### Environment Variables
+
+Create a `.env` file in the root:
+
+```env
+DATABASE_URL=postgresql://user:password@localhost:5432/block_tattoo
+
+JWT_SECRET=your_jwt_secret
+JWT_EXPIRES_IN=7d
+
+REDIS_URL=redis://localhost:6379
+
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+
+RESEND_API_KEY=your_resend_api_key
+FROM_EMAIL=noreply@yourdomain.com
+
+ANTHROPIC_API_KEY=your_anthropic_api_key
+
+NODE_ENV=development
+```
+
+### Database Setup
 
 ```bash
-# unit tests
-$ npm run test
+# Run migrations
+npx prisma migrate dev
 
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+# (Optional) Open Prisma Studio to browse data
+npx prisma studio
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Running the Server
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Development (watch mode)
+npm run start:dev
+
+# Production build
+npm run build
+npm run start:prod
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+- API: `http://localhost:3000`
+- Swagger docs: `http://localhost:3000/api`
 
-## Resources
+### Running Tests
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+# Unit tests
+npm run test
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+# Test coverage
+npm run test:cov
 
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# E2E tests
+npm run test:e2e
+```
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+UNLICENSED — private project.
