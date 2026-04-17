@@ -2,10 +2,12 @@
 
 A production-ready REST API backend for a tattoo studio, built with NestJS and TypeScript. Handles the full client journey from online booking intake through consultation, scheduling, and in-studio session management.
 
+> **Live project** — actively used by a real tattoo studio.
+
 ## Features
 
 - **Two-step booking flow** — Clients submit an intake form; the studio reviews it, schedules a consultation, then assigns a tattoo session. Each stage has its own status lifecycle (`PENDING_CONSULT` → `CONSULT_APPROVED` → `TATTOO_SCHEDULED` → `COMPLETED`).
-- **Secure booking links** — Scoped, time-limited token links allow clients to upload reference images or continue their intake without requiring an account.
+- **Secure booking links** — Scoped, time-limited token links allow clients to upload reference images or continue their intake without requiring an account. Only a hashed secret is stored — raw tokens are never persisted.
 - **Artist management** — Artist profiles with portfolios (works), availability, and assignment roles (primary, secondary, assistant, guest).
 - **Guest artist system** — External artists can book studio stations by the day or week, with automatic pricing and discount calculation.
 - **AI chat widget** — AI-powered chat assistant via the Anthropic SDK (Claude) for visitor enquiries.
@@ -151,6 +153,17 @@ npm run test:cov
 # E2E tests
 npm run test:e2e
 ```
+
+## What I Learned
+
+Building this for a real client pushed me into problems I hadn't faced before:
+
+- **Stateless client links without accounts** — The booking link token system required storing only a hashed secret (never the raw token), scoping tokens to specific actions (upload vs. view vs. continue intake), and enforcing expiry and use-count limits. Essentially building a lightweight, single-purpose auth system inside the main auth system.
+- **Prisma schema design at scale** — The booking model has 20+ fields, multiple optional relations, and 15+ composite indexes tuned for the specific query patterns the admin dashboard uses (filtering by status + date range, source + booking type, etc.). Getting this right without over-indexing was a careful process.
+- **Redis caching in NestJS** — Integrating `@nestjs/cache-manager` with the Keyv Redis adapter for module-level response caching, and knowing when *not* to cache (anything that changes per-request or per-user).
+- **Integrating the Anthropic SDK** — Streaming Claude responses through a chat endpoint, handling token limits gracefully, and shaping the system prompt to stay on-topic for a studio context.
+- **Joi-validated config at startup** — Catching missing environment variables at boot time rather than at runtime was a small change with a big operational payoff.
+- **Audit trails on sensitive operations** — Tracking which admin reviewed a booking, who submitted a medical form, and when — without turning the schema into an event log — required careful relation design.
 
 ## License
 
