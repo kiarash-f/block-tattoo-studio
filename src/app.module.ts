@@ -23,9 +23,9 @@ import { SchedulingModule } from './scheduling/scheduling.module';
 import { EmailModule } from './email/email.module';
 import { ChatModule } from './chat/chat.module';
 import { StationConfigModule } from './station-config/station-config.module';
-import { ShopifyModule } from './shopify/shopify.module';
+import { StripeModule } from './stripe/stripe.module';
 import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-bookings.module';
-import { ShopifyWebhookModule } from './shopify-webhook/shopify-webhook.module';
+import { StripeWebhookModule } from './stripe-webhook/stripe-webhook.module';
 
 @Module({
   imports: [
@@ -81,9 +81,9 @@ import { ShopifyWebhookModule } from './shopify-webhook/shopify-webhook.module';
     EmailModule,
     ChatModule,
     StationConfigModule,
-    ShopifyModule,
+    StripeModule,
     GuestArtistBookingsModule,
-    ShopifyWebhookModule,
+    StripeWebhookModule,
   ],
 })
 export class AppModule {}

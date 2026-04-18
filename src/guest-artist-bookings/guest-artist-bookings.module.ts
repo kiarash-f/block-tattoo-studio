@@ -7,10 +7,10 @@ import { GuestArtistBookingsService } from './guest-artist-bookings.service';
 import { GuestBookingExpiryService } from './guest-booking-expiry.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StationConfigModule } from '../station-config/station-config.module';
-import { ShopifyModule } from '../shopify/shopify.module';
+import { StripeModule } from '../stripe/stripe.module';
 
 @Module({
-  imports: [StationConfigModule, ShopifyModule],
+  imports: [StationConfigModule, StripeModule],
   controllers: [GuestBookingsPublicController, GuestBookingsAdminController],
   providers: [GuestArtistBookingsService, GuestBookingExpiryService, PrismaService],
 })

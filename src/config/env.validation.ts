@@ -32,10 +32,9 @@ export const envValidationSchema = Joi.object({
   // Anthropic AI
   ANTHROPIC_API_KEY: Joi.string().optional().allow(''),
 
-  // Shopify
-  SHOPIFY_STORE_DOMAIN: Joi.string().required(),
-  SHOPIFY_ADMIN_API_ACCESS_TOKEN: Joi.string().required(),
-  SHOPIFY_WEBHOOK_SECRET: Joi.string().required(),
+  // Stripe
+  STRIPE_SECRET_KEY: Joi.string().required(),
+  STRIPE_WEBHOOK_SECRET: Joi.string().required(),
 
   // Transactional Email (Resend)
   RESEND_API_KEY: Joi.string().optional().allow(''),

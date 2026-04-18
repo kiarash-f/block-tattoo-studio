@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { GuestBookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ShopifyService } from '../shopify/shopify.service';
+import { StripeService } from '../stripe/stripe.service';
 import { StationConfigService } from '../station-config/station-config.service';
 import { CreateGuestBookingDto } from './dto/create-guest-booking.dto';
 import { UpdateGuestBookingDto } from './dto/update-guest-booking.dto';
@@ -46,7 +46,7 @@ export class GuestArtistBookingsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly shopify: ShopifyService,
+    private readonly stripe: StripeService,
     private readonly configSvc: StationConfigService,
   ) {}
 
@@ -170,8 +170,8 @@ export class GuestArtistBookingsService {
       },
     });
 
-    // ── Create Shopify draft order ────────────────────────────────────────────
-    const { draftOrderId, invoiceUrl } = await this.shopify.createDraftOrder({
+    // ── Create Stripe checkout session ───────────────────────────────────────
+    const { sessionId, paymentUrl } = await this.stripe.createCheckoutSession({
       guestName:      dto.name,
       email:          dto.email,
       totalPrice,
@@ -182,20 +182,20 @@ export class GuestArtistBookingsService {
       endDate,
     });
 
-    // ── Attach Shopify IDs to the booking ─────────────────────────────────────
+    // ── Attach Stripe IDs to the booking ─────────────────────────────────────
     const updatedBooking = await this.prisma.guestArtistBooking.update({
       where: { id: booking.id },
       data: {
-        shopifyDraftOrderId: draftOrderId,
-        shopifyInvoiceUrl:   invoiceUrl,
+        stripeSessionId:  sessionId,
+        stripePaymentUrl: paymentUrl,
       },
     });
 
     // Confirmation email is sent by the webhook handler once payment is confirmed.
 
     return {
-      booking:          updatedBooking,
-      shopifyInvoiceUrl: invoiceUrl,
+      booking:         updatedBooking,
+      stripePaymentUrl: paymentUrl,
     };
   }
 

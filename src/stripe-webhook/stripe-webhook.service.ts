@@ -3,63 +3,57 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
-import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { GuestBookingStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { StripeService } from '../stripe/stripe.service';
 
 @Injectable()
-export class ShopifyWebhookService {
-  private readonly logger = new Logger(ShopifyWebhookService.name);
+export class StripeWebhookService {
+  private readonly logger = new Logger(StripeWebhookService.name);
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly stripe: StripeService,
   ) {}
 
   async handlePaymentWebhook(
     rawBody: Buffer,
-    hmacHeader: string,
+    signature: string,
   ): Promise<{ received: true }> {
-    // ── HMAC verification ─────────────────────────────────────────────────────
-    const secret = this.config.getOrThrow<string>('SHOPIFY_WEBHOOK_SECRET');
-    const computed = crypto
-      .createHmac('sha256', secret)
-      .update(rawBody)
-      .digest('base64');
+    // ── Signature verification ────────────────────────────────────────────────
+    const secret = this.config.getOrThrow<string>('STRIPE_WEBHOOK_SECRET');
 
-    if (computed !== hmacHeader) {
-      this.logger.warn('Shopify webhook HMAC verification failed');
+    let event: ReturnType<StripeService['constructWebhookEvent']>;
+    try {
+      event = this.stripe.constructWebhookEvent(rawBody, signature, secret);
+    } catch {
+      this.logger.warn('Stripe webhook signature verification failed');
       throw new UnauthorizedException('Invalid webhook signature');
     }
 
-    // ── Parse payload ─────────────────────────────────────────────────────────
-    let payload: {
-      note_attributes?: Array<{ name: string; value: string }>;
-    };
-
-    try {
-      payload = JSON.parse(rawBody.toString('utf8'));
-    } catch {
-      this.logger.warn('Shopify webhook payload is not valid JSON');
+    // ── Only handle checkout.session.completed ────────────────────────────────
+    if (event.type !== 'checkout.session.completed') {
       return { received: true };
     }
 
-    // ── Extract booking ID from note_attributes ───────────────────────────────
-    const bookingIdAttr = (payload.note_attributes ?? []).find(
-      (a) => a.name === 'booking_id',
-    );
+    const session = event.data.object as {
+      id: string;
+      metadata?: Record<string, string> | null;
+    };
 
-    if (!bookingIdAttr?.value) {
+    // ── Extract booking ID from metadata ──────────────────────────────────────
+    const bookingId = session.metadata?.booking_id;
+
+    if (!bookingId) {
       this.logger.warn(
-        'Shopify webhook received without booking_id note_attribute — skipping',
+        `Stripe webhook: checkout.session.completed has no booking_id metadata (session: ${session.id})`,
       );
       return { received: true };
     }
-
-    const bookingId = bookingIdAttr.value;
 
     // ── Load booking — idempotency guard ─────────────────────────────────────
     const booking = await this.prisma.guestArtistBooking.findUnique({
@@ -68,14 +62,14 @@ export class ShopifyWebhookService {
 
     if (!booking) {
       this.logger.warn(
-        `Shopify webhook: booking ${bookingId} not found — skipping`,
+        `Stripe webhook: booking ${bookingId} not found — skipping`,
       );
       return { received: true };
     }
 
     if (booking.status !== GuestBookingStatus.PENDING_PAYMENT) {
       this.logger.log(
-        `Shopify webhook: booking ${bookingId} already in status ${booking.status} — skipping`,
+        `Stripe webhook: booking ${bookingId} already in status ${booking.status} — skipping`,
       );
       return { received: true };
     }
@@ -86,7 +80,7 @@ export class ShopifyWebhookService {
       data: { status: GuestBookingStatus.CONFIRMED },
     });
 
-    this.logger.log(`Booking ${bookingId} confirmed via Shopify webhook`);
+    this.logger.log(`Booking ${bookingId} confirmed via Stripe webhook`);
 
     // ── Send confirmation email ───────────────────────────────────────────────
     const numberOfDays =
@@ -96,13 +90,13 @@ export class ShopifyWebhookService {
 
     this.email
       .sendGuestArtistBookingConfirmation({
-        to:             booking.email,
-        artistName:     booking.name,
-        startDate:      booking.startDate,
-        endDate:        booking.endDate,
-        numberOfTables: booking.numberOfTables,
+        to:              booking.email,
+        artistName:      booking.name,
+        startDate:       booking.startDate,
+        endDate:         booking.endDate,
+        numberOfTables:  booking.numberOfTables,
         numberOfDays,
-        totalPrice:     booking.totalPrice,
+        totalPrice:      booking.totalPrice,
         discountPercent: booking.discountApplied,
       })
       .catch((err: unknown) =>
