@@ -97,7 +97,13 @@ export class GuestArtistBookingsService {
       });
     }
 
-    return { startDate: startDateStr, endDate: endDateStr, days };
+    return {
+      startDate:              startDateStr,
+      endDate:                endDateStr,
+      pricePerDay:            config.pricePerDay,
+      monthlyDiscountPercent: config.monthlyDiscountPercent,
+      days,
+    };
   }
 
   // ─── Create booking (public) ───────────────────────────────────────────────
