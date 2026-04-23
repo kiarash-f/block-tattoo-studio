@@ -7,6 +7,7 @@ import {
   Length,
   Matches,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ArtistStatus } from '@prisma/client';
 
 export class CreateArtistDto {
@@ -23,6 +24,7 @@ export class CreateArtistDto {
   handle?: string;
 
   @ApiPropertyOptional({ example: 'alex@example.com' })
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsOptional()
   @IsEmail()
   email?: string;
