@@ -144,7 +144,7 @@ export class PublicController {
         },
 
         // ── Files ─────────────────────────────────────────────────────────────
-        files: {
+        images: {
           type: 'array',
           description: '(optional) Reference images — max 10 files, max 10 MB each. Allowed: jpeg, png, webp.',
           items: { type: 'string', format: 'binary' },
@@ -153,7 +153,7 @@ export class PublicController {
     },
   })
   @UseInterceptors(
-    FilesInterceptor('files', 10, {
+    FilesInterceptor('images', 10, {
       storage: memoryStorage(),
       limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB per file
     }),

@@ -7,6 +7,7 @@ import {
   Post,
   Req,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -82,13 +83,13 @@ export class PublicBookingController {
       properties: {
         kind: { type: 'string', enum: Object.values(UploadKind) },
         note: { type: 'string' },
-        files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        images: { type: 'array', items: { type: 'string', format: 'binary' } },
       },
-      required: ['files'],
+      required: ['images'],
     },
   })
   @UseInterceptors(
-    FilesInterceptor('files', 10, {
+    FilesInterceptor('images', 10, {
       limits: {
         fileSize: 10 * 1024 * 1024, // 10MB per file
       },
@@ -96,7 +97,7 @@ export class PublicBookingController {
   )
   async upload(
     @Req() req: Request,
-    @UploadedFile() files: Express.Multer.File[],
+    @UploadedFiles() files: Express.Multer.File[],
     @Body() body: PublicUploadDto,
   ) {
     if (!files?.length) {

@@ -28,10 +28,12 @@ export class ArticlesService {
     const slug = await this.resolveUniqueSlug(dto.slug ?? dto.title);
 
     const coverUrl = coverFile
-      ? (await this.media.uploadBuffer(coverFile.buffer, {
-          folder: 'articles/covers',
-          filename: dto.title.trim(),
-        })).secureUrl
+      ? (
+          await this.media.uploadBuffer(coverFile.buffer, {
+            folder: 'articles/covers',
+            filename: dto.title.trim(),
+          })
+        ).secureUrl
       : dto.coverUrl;
 
     return this.prisma.article.create({
@@ -43,6 +45,7 @@ export class ArticlesService {
         coverUrl,
         tags: dto.tags ?? [],
         status: dto.status ?? PublishStatus.DRAFT,
+        publishedAt: dto.status === PublishStatus.PUBLISHED ? new Date() : null,
         authorId,
       },
     });
@@ -102,7 +105,11 @@ export class ArticlesService {
     return article;
   }
 
-  async update(id: string, dto: UpdateArticleDto, coverFile?: Express.Multer.File) {
+  async update(
+    id: string,
+    dto: UpdateArticleDto,
+    coverFile?: Express.Multer.File,
+  ) {
     await this.findOne(id);
 
     const data: Prisma.ArticleUpdateInput = {};
@@ -212,6 +219,7 @@ export class ArticlesService {
         content: true,
         coverUrl: true,
         tags: true,
+        status: true,
         publishedAt: true,
         author: { select: { displayName: true } },
       },
