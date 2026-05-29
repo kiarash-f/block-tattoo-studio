@@ -9,6 +9,7 @@ import {
   AssignmentRole,
   BookingStatus,
   BookingType,
+  BudgetRange,
   CancelReason,
   Prisma,
   UploadKind,
@@ -247,6 +248,7 @@ export class BookingsService {
         instagram?: string;
       };
       description: string;
+      budgetRange?: string;
       tattooDate: Date;
       artistId: string;
       stationId?: string;
@@ -301,7 +303,7 @@ export class BookingsService {
           status: BookingStatus.TATTOO_SCHEDULED,
           bookingType: BookingType.WALK_IN,
           description: data.description,
-          budgetRange: 'UNDER_200', // walk-in default, admin can update
+          budgetRange: (data.budgetRange as BudgetRange) ?? BudgetRange.UNDER_200,
           placement: data.placement,
           sizeDescription: data.sizeDescription,
           styleNotes: data.styleNotes,
