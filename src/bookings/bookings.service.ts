@@ -9,6 +9,7 @@ import {
   AssignmentRole,
   BookingStatus,
   BookingType,
+  BudgetRange,
   CancelReason,
   Prisma,
   UploadKind,
@@ -16,7 +17,6 @@ import {
 import { MediaService } from '../media/media.service';
 import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake.dto';
 import { getUtcRangeForZonedDate } from '../common/time/zoned-date-range';
-import { BudgetRange } from 'src/public/dto/booking-intake.dto';
 
 const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   PENDING_CONSULT: ['CONSULT_APPROVED', 'CANCELLED'],
@@ -288,6 +288,7 @@ export class BookingsService {
       placement?: string;
       sizeDescription?: string;
       styleNotes?: string;
+      budgetRange?: BudgetRange;
     },
     files: Express.Multer.File[],
   ) {
@@ -337,8 +338,7 @@ export class BookingsService {
           status: BookingStatus.TATTOO_SCHEDULED,
           bookingType: BookingType.WALK_IN,
           description: data.description,
-          budgetRange:
-            (data.budgetRange as BudgetRange) ?? BudgetRange.UNDER_200,
+          budgetRange: data.budgetRange ?? BudgetRange.UNDER_200,
           placement: data.placement,
           sizeDescription: data.sizeDescription,
           styleNotes: data.styleNotes,
