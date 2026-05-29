@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
+import { AuthService } from './auth.service';
 
 export type AdminJwtPayload = {
   sub: string;
@@ -11,7 +13,10 @@ export type AdminJwtPayload = {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly auth: AuthService,
+  ) {
     const secret = config.get<string>('ADMIN_JWT_SECRET');
     if (!secret) {
       throw new Error('Missing ADMIN_JWT_SECRET');
@@ -20,11 +25,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: secret, // ✅ guaranteed string
+      secretOrKey: secret,
+      passReqToCallback: true,
     });
   }
 
-  validate(payload: AdminJwtPayload) {
-    return payload; // becomes req.user
+  async validate(req: Request, payload: AdminJwtPayload) {
+    const token = ExtractJwt.fromAuthHeaderAsBearerToken()(req);
+    if (token && (await this.auth.isRevoked(token))) {
+      throw new UnauthorizedException('Token has been revoked');
+    }
+    return payload;
   }
 }

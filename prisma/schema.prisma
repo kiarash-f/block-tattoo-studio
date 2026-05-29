@@ -41,7 +41,6 @@ enum BookingLinkStatus {
 
 enum BookingStatus {
   PENDING_CONSULT
-  CONSULT_APPROVED
   CONSULT_NO_SHOW
   TATTOO_SCHEDULED
   COMPLETED
