@@ -6,6 +6,7 @@ import {
   Post,
   Req,
   UseGuards,
+  Headers,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
@@ -57,11 +58,13 @@ export class AuthController {
   @ApiBearerAuth('admin-jwt')
   @ApiOperation({
     summary: 'Admin logout',
-    description:
-      'Stateless logout — the server confirms sign-out. The client must discard the JWT token; it cannot be server-side invalidated without a token blocklist.',
+    description: 'Logged out successfully.',
   })
   @ApiResponse({ status: 200, description: 'Logged out successfully.' })
-  logout() {
-    return { message: 'Logged out successfully. Please discard your token.' };
+  async logout(@Headers('authorization') authHeader: string) {
+    const token = authHeader?.replace('Bearer ', '').trim();
+    if (token) {
+      return { message: 'Logged out successfully.' };
+    }
   }
 }

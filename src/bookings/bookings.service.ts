@@ -19,13 +19,13 @@ import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake
 import { getUtcRangeForZonedDate } from '../common/time/zoned-date-range';
 
 const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
-  PENDING_CONSULT:  ['CONSULT_APPROVED', 'CANCELLED'],
+  PENDING_CONSULT: ['CONSULT_APPROVED', 'CANCELLED'],
   CONSULT_APPROVED: ['CONSULT_NO_SHOW', 'CANCELLED'],
   // TATTOO_SCHEDULED is set via scheduleTattooSession, not updateStatus
-  CONSULT_NO_SHOW:  [],
+  CONSULT_NO_SHOW: [],
   TATTOO_SCHEDULED: ['COMPLETED', 'CANCELLED'],
-  COMPLETED:        [],
-  CANCELLED:        [],
+  COMPLETED: [],
+  CANCELLED: [],
 };
 
 const REVIEWED_STATUSES: BookingStatus[] = ['CONSULT_APPROVED'];
@@ -138,10 +138,14 @@ export class BookingsService {
         select: { scheduledDate: true },
       });
       if (!session) {
-        throw new BadRequestException('Cannot complete: no tattoo session scheduled');
+        throw new BadRequestException(
+          'Cannot complete: no tattoo session scheduled',
+        );
       }
       if (session.scheduledDate > now) {
-        throw new BadRequestException('Cannot complete before the tattoo session date');
+        throw new BadRequestException(
+          'Cannot complete before the tattoo session date',
+        );
       }
     }
 
@@ -172,7 +176,7 @@ export class BookingsService {
 
     const shouldSetReviewed = REVIEWED_STATUSES.includes(next);
 
-    return this.prisma.bookingRequest.update({
+    const updated = await this.prisma.bookingRequest.update({
       where: { id },
       data: {
         status: next,
@@ -183,8 +187,21 @@ export class BookingsService {
           ? { reviewedAt: now, reviewedByAdmin: { connect: { id: adminId } } }
           : {}),
       },
-      include: { client: { select: { email: true, firstName: true, lastName: true } } },
+      include: {
+        client: { select: { email: true, firstName: true, lastName: true } },
+      },
     });
+
+    if (next === BookingStatus.CANCELLED && updated.client.email) {
+      this.email
+        .sendBookingRejected({
+          to: updated.client.email,
+          clientName:
+            `${updated.client.firstName}${updated.client.lastName}`.trim(),
+        })
+        .catch(() => void 0);
+    }
+    return updated;
   }
 
   async scheduleTattooSession(
@@ -199,7 +216,10 @@ export class BookingsService {
   ) {
     const booking = await this.prisma.bookingRequest.findUniqueOrThrow({
       where: { id: bookingRequestId },
-      select: { status: true },
+      select: {
+        status: true,
+        client: { select: { email: true, firstName: true, lastName: true } },
+      },
     });
 
     if (booking.status !== BookingStatus.CONSULT_APPROVED) {
@@ -210,14 +230,14 @@ export class BookingsService {
 
     const artist = await this.prisma.artist.findUnique({
       where: { id: data.artistId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, displayName: true },
     });
     if (!artist || artist.status !== 'ACTIVE') {
       throw new BadRequestException('Artist not found or inactive');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const session = await tx.tattooSession.create({
+    const session = await this.prisma.$transaction(async (tx) => {
+      const s = await tx.tattooSession.create({
         data: {
           bookingRequestId,
           artistId: data.artistId,
@@ -233,8 +253,21 @@ export class BookingsService {
         data: { status: BookingStatus.TATTOO_SCHEDULED },
       });
 
-      return session;
+      return s;
     });
+
+    if (booking.client.email) {
+      this.email
+        .sendSessionReminder({
+          to: booking.client.email,
+          clientName:
+            `${booking.client.firstName}${booking.client.lastName}`.trim(),
+          sessionDate: data.scheduledDate,
+          artistName: artist.displayName,
+        })
+        .catch(() => void 0);
+    }
+    return session;
   }
 
   async createWalkIn(
@@ -256,6 +289,7 @@ export class BookingsService {
       placement?: string;
       sizeDescription?: string;
       styleNotes?: string;
+      budgetRange?: BudgetRange;
     },
     files: Express.Multer.File[],
   ) {
@@ -273,7 +307,9 @@ export class BookingsService {
         ? await tx.client.findFirst({ where: { email: data.client.email } })
         : null;
       if (!clientRow && data.client.phone) {
-        clientRow = await tx.client.findFirst({ where: { phone: data.client.phone } });
+        clientRow = await tx.client.findFirst({
+          where: { phone: data.client.phone },
+        });
       }
 
       clientRow = clientRow
@@ -303,7 +339,7 @@ export class BookingsService {
           status: BookingStatus.TATTOO_SCHEDULED,
           bookingType: BookingType.WALK_IN,
           description: data.description,
-          budgetRange: (data.budgetRange as BudgetRange) ?? BudgetRange.UNDER_200,
+          budgetRange: data.budgetRange ?? BudgetRange.UNDER_200,
           placement: data.placement,
           sizeDescription: data.sizeDescription,
           styleNotes: data.styleNotes,
@@ -351,6 +387,17 @@ export class BookingsService {
 
     // Generate upload token for tablet (client can add more images)
     const token = await this.generateUploadToken(result.booking.id, adminId);
+
+    if (result.client.email) {
+      this.email
+        .sendBookingConfirmation({
+          to: result.client.email,
+          clientName:
+            `${result.client.firstName}${result.client.lastName}`.trim(),
+          bookingRequestId: result.booking.id,
+        })
+        .catch(() => void 0);
+    }
 
     return {
       bookingId: result.booking.id,

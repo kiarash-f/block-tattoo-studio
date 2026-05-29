@@ -126,7 +126,8 @@ export class SchedulingService {
       this.email
         .sendConsultConfirmation({
           to: booking.client.email,
-          clientName: `${booking.client.firstName} ${booking.client.lastName}`.trim(),
+          clientName:
+            `${booking.client.firstName} ${booking.client.lastName}`.trim(),
           consultDate: slot.date,
         })
         .catch(() => void 0);
@@ -159,7 +160,11 @@ export class SchedulingService {
   async createTattooSession(bookingId: string, dto: CreateTattooSessionDto) {
     const booking = await this.prisma.bookingRequest.findUnique({
       where: { id: bookingId },
-      select: { id: true, status: true },
+      select: {
+        id: true,
+        status: true,
+        client: { select: { email: true, firstName: true, lastName: true } },
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
@@ -177,7 +182,7 @@ export class SchedulingService {
     // Verify artist exists
     const artist = await this.prisma.artist.findUnique({
       where: { id: dto.artistId },
-      select: { id: true },
+      select: { id: true, displayName: true },
     });
     if (!artist) throw new NotFoundException('Artist not found');
 
@@ -187,7 +192,7 @@ export class SchedulingService {
       select: { id: true },
     });
 
-    return this.prisma.tattooSession.create({
+    const session = await this.prisma.tattooSession.create({
       data: {
         bookingRequestId: bookingId,
         artistId: dto.artistId,
@@ -201,6 +206,18 @@ export class SchedulingService {
         station: { select: { id: true, name: true } },
       },
     });
+    if (booking.client.email) {
+      this.email
+        .sendSessionReminder({
+          to: booking.client.email,
+          clientName:
+            `${booking.client.firstName}${booking.client.lastName}`.trim(),
+          sessionDate: session.scheduledDate,
+          artistName: session.artist.displayName,
+        })
+        .catch(() => void 0);
+    }
+    return session;
   }
 
   async listTattooSessions(bookingId: string) {
