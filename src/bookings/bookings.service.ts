@@ -281,6 +281,7 @@ export class BookingsService {
         instagram?: string;
       };
       description: string;
+      budgetRange?: string;
       tattooDate: Date;
       artistId: string;
       stationId?: string;
