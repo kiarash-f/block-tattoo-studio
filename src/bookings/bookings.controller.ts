@@ -144,7 +144,6 @@ export class BookingsController {
         placement: body.placement || undefined,
         sizeDescription: body.sizeDescription || undefined,
         styleNotes: body.styleNotes || undefined,
-        budgetRange: body.budgetRange || undefined,
       },
       files?.images ?? [],
     );

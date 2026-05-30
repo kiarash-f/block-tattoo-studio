@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
 import { CreateArticleDto } from './dto/create-article.dto';
 import { UpdateArticleDto } from './dto/update-article.dto';
+import { TranslationService } from '../translation/translation.service';
 import { ListArticlesDto } from './dto/list-articles.dto';
 import { slugify } from './utils/slugify';
 
@@ -16,6 +17,7 @@ export class ArticlesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
+    private readonly translation: TranslationService,
   ) {}
 
   // ─── Admin ────────────────────────────────────────────────────────────────
@@ -36,7 +38,7 @@ export class ArticlesService {
         ).secureUrl
       : dto.coverUrl;
 
-    return this.prisma.article.create({
+    const article = await this.prisma.article.create({
       data: {
         title: dto.title.trim(),
         slug,
@@ -49,6 +51,14 @@ export class ArticlesService {
         authorId,
       },
     });
+
+    const translations = await this.translateArticle({
+      title: dto.title.trim(),
+      excerpt: dto.excerpt?.trim(),
+      content: dto.content,
+    });
+
+    return this.prisma.article.update({ where: { id: article.id }, data: translations });
   }
 
   async findAll(query: ListArticlesDto) {
@@ -134,6 +144,16 @@ export class ArticlesService {
     }
     if (dto.tags !== undefined) data.tags = dto.tags;
     if (dto.status !== undefined) data.status = dto.status;
+
+    const translatable: { title?: string; excerpt?: string; content?: string } = {};
+if (dto.title !== undefined) translatable.title = dto.title.trim();
+if (dto.excerpt !== undefined) translatable.excerpt = dto.excerpt?.trim();
+if (dto.content !== undefined) translatable.content = dto.content;
+
+    if (Object.keys(translatable).length > 0) {
+      const translations = await this.translateArticle(translatable);
+      Object.assign(data, translations);
+    }
 
     return this.prisma.article.update({ where: { id }, data });
   }
@@ -252,5 +272,42 @@ export class ArticlesService {
 
       candidate = `${baseSlug}-${counter++}`;
     }
+  }
+
+  private async translateArticle(fields: {
+    title?: string;
+    excerpt?: string;
+    content?: string;
+  }) {
+    const results: Record<string, string | undefined> = {};
+    await Promise.all(
+      [
+        fields.title &&
+          this.translation.translate(fields.title, 'DE').then((v) => {
+            results.titleDe = v;
+          }),
+        fields.title &&
+          this.translation.translate(fields.title, 'EN-GB').then((v) => {
+            results.titleEn = v;
+          }),
+        fields.excerpt &&
+          this.translation.translate(fields.excerpt, 'DE').then((v) => {
+            results.excerptDe = v;
+          }),
+        fields.excerpt &&
+          this.translation.translate(fields.excerpt, 'EN-GB').then((v) => {
+            results.excerptEn = v;
+          }),
+        fields.content &&
+          this.translation.translate(fields.content, 'DE').then((v) => {
+            results.contentDe = v;
+          }),
+        fields.content &&
+          this.translation.translate(fields.content, 'EN-GB').then((v) => {
+            results.contentEn = v;
+          }),
+      ].filter(Boolean),
+    );
+    return results;
   }
 }

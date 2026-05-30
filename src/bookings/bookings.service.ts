@@ -281,7 +281,7 @@ export class BookingsService {
         instagram?: string;
       };
       description: string;
-      budgetRange?: string;
+      budgetRange?: BudgetRange;
       tattooDate: Date;
       artistId: string;
       stationId?: string;
@@ -289,7 +289,6 @@ export class BookingsService {
       placement?: string;
       sizeDescription?: string;
       styleNotes?: string;
-      budgetRange?: BudgetRange;
     },
     files: Express.Multer.File[],
   ) {
