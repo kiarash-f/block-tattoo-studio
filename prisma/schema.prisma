@@ -41,6 +41,7 @@ enum BookingLinkStatus {
 
 enum BookingStatus {
   PENDING_CONSULT
+  CONSULT_APPROVED 
   CONSULT_NO_SHOW
   TATTOO_SCHEDULED
   COMPLETED
@@ -359,6 +360,8 @@ model Artist {
   status      ArtistStatus @default(ACTIVE)
 
   bio       String?
+  bioDe     String?
+  bioEn     String?
   avatarUrl String?
   coverUrl  String?        // new
 
@@ -378,6 +381,8 @@ model Artist {
 model ArtistWork {
   id          String        @id @default(cuid())
   title       String
+  titleDe   String?
+  titleEn   String?
   coverUrl    String
   tags        String[]      // hashtags
   status      PublishStatus @default(DRAFT)
@@ -440,9 +445,15 @@ model BookingAssignment {
 model Article {
   id          String        @id @default(cuid())
   title       String
+  titleDe     String?
+  titleEn     String?
   slug        String        @unique
   excerpt     String?
+  excerptDe   String?
+  excerptEn   String?
   content     String
+  contentDe   String?
+  contentEn   String?
   coverUrl    String?
   tags        String[]
   status      PublishStatus @default(DRAFT)

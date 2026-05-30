@@ -6,6 +6,7 @@ import {
 import { Prisma, ArtistStatus, PublishStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
+import { TranslationService } from '../translation/translation.service';
 
 import { CreateArtistDto } from './dto/create-artist.dto';
 import { UpdateArtistDto } from './dto/update-artist.dto';
@@ -20,6 +21,7 @@ export class ArtistsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
+    private readonly translation: TranslationService,
   ) {}
 
   // -----------------------------
@@ -74,10 +76,15 @@ export class ArtistsService {
           coverUrl,
         },
       });
+      const translation = await this.translateBio(dto.bio);
+      await tx.artist.update({
+        where: { id: artist.id },
+        data: translation,
+      });
 
       if (uploadedWorks.length > 0) {
-        const createData: Prisma.ArtistWorkCreateManyInput[] = uploadedWorks.map(
-          (u, idx) => {
+        const createData: Prisma.ArtistWorkCreateManyInput[] =
+          uploadedWorks.map((u, idx) => {
             const meta = worksMeta[idx];
             return {
               artistId: artist.id,
@@ -90,8 +97,7 @@ export class ArtistsService {
               status: PublishStatus.PUBLISHED,
               publishedAt: now,
             };
-          },
-        );
+          });
 
         await tx.artistWork.createMany({ data: createData });
       }
@@ -118,12 +124,12 @@ export class ArtistsService {
           dto.handle || existing.handle || undefined,
           dto.displayName || existing.displayName,
         )
-      : existing.slug ??
+      : (existing.slug ??
         this.resolveSlug(
           undefined,
           dto.handle || existing.handle || undefined,
           dto.displayName || existing.displayName,
-        );
+        ));
 
     const coverFile = files.cover?.[0];
     const coverUrl = coverFile
@@ -168,10 +174,17 @@ export class ArtistsService {
         where: { id },
         data,
       });
+      if (has(dto.bio)) {
+        const translation = await this.translateBio(dto.bio);
+        await tx.artist.update({
+          where: { id: updated.id },
+          data: translation,
+        });
+      }
 
       if (uploadedWorks.length > 0) {
-        const createData: Prisma.ArtistWorkCreateManyInput[] = uploadedWorks.map(
-          (u, idx) => {
+        const createData: Prisma.ArtistWorkCreateManyInput[] =
+          uploadedWorks.map((u, idx) => {
             const meta = worksMeta[idx];
             return {
               artistId: updated.id,
@@ -184,8 +197,7 @@ export class ArtistsService {
               status: PublishStatus.PUBLISHED,
               publishedAt: now,
             };
-          },
-        );
+          });
 
         await tx.artistWork.createMany({ data: createData });
       }
@@ -213,11 +225,19 @@ export class ArtistsService {
       avatarUrl: dto.avatarUrl,
     };
 
-    return this.prisma.artist.create({ data });
+    const artist = await this.prisma.artist.create({ data });
+    const translation = await this.translateBio(dto.bio);
+    return this.prisma.artist.update({
+      where: { id: artist.id },
+      data: translation,
+    });
   }
 
   async findOne(id: string) {
-    const artist = await this.prisma.artist.findUnique({ where: { id }, include: { works: true } });
+    const artist = await this.prisma.artist.findUnique({
+      where: { id },
+      include: { works: true },
+    });
     if (!artist) throw new NotFoundException('Artist not found');
     return artist;
   }
@@ -285,7 +305,12 @@ export class ArtistsService {
 
     await this.assertUniqueFields({ slug, handle, email }, id);
 
-    return this.prisma.artist.update({ where: { id }, data });
+    const updated = await this.prisma.artist.update({ where: { id }, data });
+    if (dto.bio !== undefined) {
+      const translations = await this.translateBio(dto.bio);
+      return this.prisma.artist.update({ where: { id }, data: translations });
+    }
+    return updated;
   }
 
   async deactivate(id: string) {
@@ -305,7 +330,8 @@ export class ArtistsService {
     displayName?: string,
   ) {
     const base = explicitSlug?.trim() || handle?.trim() || displayName?.trim();
-    if (!base) throw new BadRequestException('slug/handle/displayName required');
+    if (!base)
+      throw new BadRequestException('slug/handle/displayName required');
 
     const s = slugify(base);
     if (!s || s.length < 2) throw new BadRequestException('Invalid slug');
@@ -332,11 +358,7 @@ export class ArtistsService {
   private normalizeTags(tags?: string[]) {
     if (!tags?.length) return [];
     return Array.from(
-      new Set(
-        tags
-          .map((t) => slugify(String(t)))
-          .filter((t) => t.length > 0),
-      ),
+      new Set(tags.map((t) => slugify(String(t))).filter((t) => t.length > 0)),
     );
   }
 
@@ -389,5 +411,13 @@ export class ArtistsService {
     if (conflict) {
       throw new BadRequestException('slug/handle/email already in use');
     }
+  }
+  private async translateBio(bio?: string) {
+    if (!bio) return { bioDe: undefined, bioEn: undefined };
+    const [bioDe, bioEn] = await Promise.all([
+      this.translation.translate(bio, 'DE'),
+      this.translation.translate(bio, 'EN-GB'),
+    ]);
+    return { bioDe, bioEn };
   }
 }
