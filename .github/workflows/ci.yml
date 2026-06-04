@@ -24,6 +24,8 @@ jobs:
 
       - name: Generate Prisma client
         run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/db
 
       - name: Build
         run: npm run build
