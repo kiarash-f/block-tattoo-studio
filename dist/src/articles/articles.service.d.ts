@@ -1,0 +1,188 @@
+import { PrismaService } from '../prisma/prisma.service';
+import { MediaService } from '../media/media.service';
+import { CreateArticleDto } from './dto/create-article.dto';
+import { UpdateArticleDto } from './dto/update-article.dto';
+import { TranslationService } from '../translation/translation.service';
+import { ListArticlesDto } from './dto/list-articles.dto';
+export declare class ArticlesService {
+    private readonly prisma;
+    private readonly media;
+    private readonly translation;
+    constructor(prisma: PrismaService, media: MediaService, translation: TranslationService);
+    create(dto: CreateArticleDto, authorId: string, coverFile?: Express.Multer.File): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tags: string[];
+        content: string;
+        title: string;
+        status: import("@prisma/client").$Enums.PublishStatus;
+        slug: string;
+        coverUrl: string | null;
+        titleDe: string | null;
+        titleEn: string | null;
+        publishedAt: Date | null;
+        excerpt: string | null;
+        excerptDe: string | null;
+        excerptEn: string | null;
+        contentDe: string | null;
+        contentEn: string | null;
+        authorId: string | null;
+    }>;
+    findAll(query: ListArticlesDto): Promise<{
+        page: number;
+        limit: number;
+        total: number;
+        items: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tags: string[];
+            title: string;
+            status: import("@prisma/client").$Enums.PublishStatus;
+            slug: string;
+            coverUrl: string | null;
+            publishedAt: Date | null;
+            excerpt: string | null;
+            author: {
+                id: string;
+                displayName: string | null;
+            } | null;
+        }[];
+    }>;
+    findOne(id: string): Promise<{
+        author: {
+            id: string;
+            displayName: string | null;
+        } | null;
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tags: string[];
+        content: string;
+        title: string;
+        status: import("@prisma/client").$Enums.PublishStatus;
+        slug: string;
+        coverUrl: string | null;
+        titleDe: string | null;
+        titleEn: string | null;
+        publishedAt: Date | null;
+        excerpt: string | null;
+        excerptDe: string | null;
+        excerptEn: string | null;
+        contentDe: string | null;
+        contentEn: string | null;
+        authorId: string | null;
+    }>;
+    update(id: string, dto: UpdateArticleDto, coverFile?: Express.Multer.File): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tags: string[];
+        content: string;
+        title: string;
+        status: import("@prisma/client").$Enums.PublishStatus;
+        slug: string;
+        coverUrl: string | null;
+        titleDe: string | null;
+        titleEn: string | null;
+        publishedAt: Date | null;
+        excerpt: string | null;
+        excerptDe: string | null;
+        excerptEn: string | null;
+        contentDe: string | null;
+        contentEn: string | null;
+        authorId: string | null;
+    }>;
+    publish(id: string): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tags: string[];
+        content: string;
+        title: string;
+        status: import("@prisma/client").$Enums.PublishStatus;
+        slug: string;
+        coverUrl: string | null;
+        titleDe: string | null;
+        titleEn: string | null;
+        publishedAt: Date | null;
+        excerpt: string | null;
+        excerptDe: string | null;
+        excerptEn: string | null;
+        contentDe: string | null;
+        contentEn: string | null;
+        authorId: string | null;
+    }>;
+    unpublish(id: string): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tags: string[];
+        content: string;
+        title: string;
+        status: import("@prisma/client").$Enums.PublishStatus;
+        slug: string;
+        coverUrl: string | null;
+        titleDe: string | null;
+        titleEn: string | null;
+        publishedAt: Date | null;
+        excerpt: string | null;
+        excerptDe: string | null;
+        excerptEn: string | null;
+        contentDe: string | null;
+        contentEn: string | null;
+        authorId: string | null;
+    }>;
+    remove(id: string): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tags: string[];
+        content: string;
+        title: string;
+        status: import("@prisma/client").$Enums.PublishStatus;
+        slug: string;
+        coverUrl: string | null;
+        titleDe: string | null;
+        titleEn: string | null;
+        publishedAt: Date | null;
+        excerpt: string | null;
+        excerptDe: string | null;
+        excerptEn: string | null;
+        contentDe: string | null;
+        contentEn: string | null;
+        authorId: string | null;
+    }>;
+    findPublished(query: ListArticlesDto): Promise<{
+        page: number;
+        limit: number;
+        total: number;
+        items: {
+            id: string;
+            tags: string[];
+            title: string;
+            slug: string;
+            coverUrl: string | null;
+            publishedAt: Date | null;
+            excerpt: string | null;
+        }[];
+    }>;
+    findBySlug(slug: string): Promise<{
+        id: string;
+        tags: string[];
+        content: string;
+        title: string;
+        status: import("@prisma/client").$Enums.PublishStatus;
+        slug: string;
+        coverUrl: string | null;
+        publishedAt: Date | null;
+        excerpt: string | null;
+        author: {
+            displayName: string | null;
+        } | null;
+    }>;
+    private resolveUniqueSlug;
+    private translateArticle;
+}

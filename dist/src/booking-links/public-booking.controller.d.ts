@@ -1,0 +1,131 @@
+import type { Request } from 'express';
+import { BookingsService } from '../bookings/bookings.service';
+import { PublicUpdateIntakeDto } from './dto/public-update-intake.dto';
+import { BookingLinksUploadsService } from './uploads/booking-links-uploads.service';
+import { PublicUploadDto } from './dto/public-upload.dto';
+export declare class PublicBookingController {
+    private readonly bookings;
+    private readonly uploadSvc;
+    constructor(bookings: BookingsService, uploadSvc: BookingLinksUploadsService);
+    getIntake(req: Request): Promise<{
+        medicalDeclaration: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            bookingRequestId: string;
+            hasAllergies: boolean;
+            allergiesDetails: string | null;
+            hasSkinCondition: boolean;
+            skinConditionDetails: string | null;
+            isPregnantOrNursing: boolean;
+            hasHeartCondition: boolean;
+            hasDiabetes: boolean;
+            takesBloodThinners: boolean;
+            takesMedication: boolean;
+            medicationDetails: string | null;
+            otherNotes: string | null;
+            submittedAt: Date | null;
+            submittedByAdminId: string | null;
+        } | null;
+        consent: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            bookingRequestId: string;
+            submittedAt: Date | null;
+            submittedByAdminId: string | null;
+            isAdultConfirmed: boolean;
+            termsAccepted: boolean;
+            privacyAccepted: boolean;
+            fullName: string | null;
+            signedAt: Date | null;
+        } | null;
+        id: string;
+        description: string;
+        placement: string | null;
+        sizeDescription: string | null;
+        styleNotes: string | null;
+        budgetRange: import("@prisma/client").$Enums.BudgetRange;
+        referencesNotes: string | null;
+        preferredArtistName: string | null;
+        studioChooses: boolean;
+        preferredDateFrom: Date | null;
+        preferredDateTo: Date | null;
+        preferredTimeOfDay: import("@prisma/client").$Enums.PreferredTimeOfDay | null;
+        preferredDaysNote: string | null;
+        status: import("@prisma/client").$Enums.BookingStatus;
+        uploads: {
+            id: string;
+            createdAt: Date;
+            secureUrl: string;
+            kind: import("@prisma/client").$Enums.UploadKind;
+        }[];
+    }>;
+    updateIntake(req: Request, dto: PublicUpdateIntakeDto): Promise<{
+        medicalDeclaration: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            bookingRequestId: string;
+            hasAllergies: boolean;
+            allergiesDetails: string | null;
+            hasSkinCondition: boolean;
+            skinConditionDetails: string | null;
+            isPregnantOrNursing: boolean;
+            hasHeartCondition: boolean;
+            hasDiabetes: boolean;
+            takesBloodThinners: boolean;
+            takesMedication: boolean;
+            medicationDetails: string | null;
+            otherNotes: string | null;
+            submittedAt: Date | null;
+            submittedByAdminId: string | null;
+        } | null;
+        consent: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            bookingRequestId: string;
+            submittedAt: Date | null;
+            submittedByAdminId: string | null;
+            isAdultConfirmed: boolean;
+            termsAccepted: boolean;
+            privacyAccepted: boolean;
+            fullName: string | null;
+            signedAt: Date | null;
+        } | null;
+        id: string;
+        description: string;
+        placement: string | null;
+        sizeDescription: string | null;
+        styleNotes: string | null;
+        budgetRange: import("@prisma/client").$Enums.BudgetRange;
+        referencesNotes: string | null;
+        preferredArtistName: string | null;
+        studioChooses: boolean;
+        preferredDateFrom: Date | null;
+        preferredDateTo: Date | null;
+        preferredTimeOfDay: import("@prisma/client").$Enums.PreferredTimeOfDay | null;
+        preferredDaysNote: string | null;
+        status: import("@prisma/client").$Enums.BookingStatus;
+        uploads: {
+            id: string;
+            createdAt: Date;
+            secureUrl: string;
+            kind: import("@prisma/client").$Enums.UploadKind;
+        }[];
+    }>;
+    upload(req: Request, files: Express.Multer.File[], body: PublicUploadDto): Promise<{
+        inserted: number;
+        note: string | null;
+        uploads: {
+            id: string;
+            createdAt: Date;
+            secureUrl: string;
+            kind: import("@prisma/client").$Enums.UploadKind;
+            originalName: string | null;
+            mimeType: string | null;
+            bytes: number | null;
+        }[];
+    }>;
+}
