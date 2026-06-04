@@ -39,8 +39,18 @@ export class GuestBookingsPublicController {
       'Returns available tables per day for the requested range. ' +
       'Days where availableTables = 0 are fully booked.',
   })
-  @ApiQuery({ name: 'startDate', required: true, example: '2026-06-01', description: 'ISO date YYYY-MM-DD' })
-  @ApiQuery({ name: 'endDate',   required: true, example: '2026-06-30', description: 'ISO date YYYY-MM-DD' })
+  @ApiQuery({
+    name: 'startDate',
+    required: true,
+    example: '2026-06-01',
+    description: 'ISO date YYYY-MM-DD',
+  })
+  @ApiQuery({
+    name: 'endDate',
+    required: true,
+    example: '2026-06-30',
+    description: 'ISO date YYYY-MM-DD',
+  })
   @ApiResponse({ status: 200, description: 'Availability per day.' })
   @ApiResponse({ status: 400, description: 'Invalid date range.' })
   getAvailability(@Query() query: AvailabilityQueryDto) {
@@ -57,8 +67,14 @@ export class GuestBookingsPublicController {
       'Returns the booking details and a Shopify checkout URL (payment link).',
   })
   @ApiBody({ type: CreateGuestBookingDto })
-  @ApiResponse({ status: 201, description: 'Booking created. Check shopifyCheckoutUrl for payment.' })
-  @ApiResponse({ status: 400, description: 'Validation failed or not enough tables available.' })
+  @ApiResponse({
+    status: 201,
+    description: 'Booking created. Check shopifyCheckoutUrl for payment.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Validation failed or not enough tables available.',
+  })
   @ApiResponse({ status: 404, description: 'Station config not set up yet.' })
   create(@Body() dto: CreateGuestBookingDto) {
     return this.service.create(dto);

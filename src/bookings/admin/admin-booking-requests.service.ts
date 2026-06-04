@@ -23,7 +23,9 @@ export class AdminBookingRequestsService {
     if (!br) throw new NotFoundException('BookingRequest not found');
 
     if (br.status !== BookingStatus.TATTOO_SCHEDULED) {
-      throw new BadRequestException('Only TATTOO_SCHEDULED bookings can be checked in');
+      throw new BadRequestException(
+        'Only TATTOO_SCHEDULED bookings can be checked in',
+      );
     }
 
     // Idempotent

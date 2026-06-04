@@ -1,6 +1,12 @@
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { StationConfigService } from './station-config.service';
 import { UpdateStationConfigDto } from './dto/update-station-config.dto';
 
@@ -14,7 +20,8 @@ export class StationConfigController {
   @Get()
   @ApiOperation({
     summary: 'Get station config',
-    description: 'Returns the current guest artist station configuration (total tables, price per day, monthly discount).',
+    description:
+      'Returns the current guest artist station configuration (total tables, price per day, monthly discount).',
   })
   @ApiResponse({ status: 200, description: 'Current config.' })
   @ApiResponse({ status: 404, description: 'Config not set up yet.' })
@@ -25,7 +32,8 @@ export class StationConfigController {
   @Patch()
   @ApiOperation({
     summary: 'Update station config',
-    description: 'Updates (or creates on first use) the station config. All fields are optional — only send what you want to change.',
+    description:
+      'Updates (or creates on first use) the station config. All fields are optional — only send what you want to change.',
   })
   @ApiBody({ type: UpdateStationConfigDto })
   @ApiResponse({ status: 200, description: 'Config updated.' })

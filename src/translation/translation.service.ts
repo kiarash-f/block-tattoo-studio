@@ -11,7 +11,11 @@ export class TranslationService {
 
   async translate(text: string, targetLang: string): Promise<string> {
     if (!text?.trim()) return text;
-    const result = await this.translator.translateText(text, null, targetLang as deepl.TargetLanguageCode);
+    const result = await this.translator.translateText(
+      text,
+      null,
+      targetLang as deepl.TargetLanguageCode,
+    );
     return result.text;
   }
 }

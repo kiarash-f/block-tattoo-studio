@@ -1,9 +1,4 @@
-import {
-  Controller,
-  HttpCode,
-  Post,
-  Req,
-} from '@nestjs/common';
+import { Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { StripeWebhookService } from './stripe-webhook.service';
@@ -34,7 +29,7 @@ export class StripeWebhookController {
   @ApiResponse({ status: 200, description: 'Webhook processed.' })
   @ApiResponse({ status: 401, description: 'Invalid Stripe signature.' })
   payment(@Req() req: RawRequest) {
-    const rawBody   = req.rawBody ?? Buffer.from('');
+    const rawBody = req.rawBody ?? Buffer.from('');
     const signature = (req.headers['stripe-signature'] as string) ?? '';
     return this.service.handlePaymentWebhook(rawBody, signature);
   }

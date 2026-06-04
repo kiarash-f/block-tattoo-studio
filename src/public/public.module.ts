@@ -4,7 +4,7 @@ import { PublicService } from './public.service';
 import { MediaModule } from '../media/media.module';
 
 @Module({
-  imports: [MediaModule], 
+  imports: [MediaModule],
   controllers: [PublicController],
   providers: [PublicService],
   exports: [PublicService],

@@ -1,11 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsArray,
-  IsEnum,
-  IsOptional,
-  IsString,
-  Length,
-} from 'class-validator';
+import { IsArray, IsEnum, IsOptional, IsString, Length } from 'class-validator';
 import { PublishStatus } from '@prisma/client';
 
 export class UpdateWorkDto {

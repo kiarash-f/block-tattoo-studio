@@ -29,12 +29,18 @@ export class UpdateGuestBookingDto {
   @IsEmail()
   email?: string;
 
-  @ApiPropertyOptional({ example: '2026-06-01', description: 'ISO date YYYY-MM-DD' })
+  @ApiPropertyOptional({
+    example: '2026-06-01',
+    description: 'ISO date YYYY-MM-DD',
+  })
   @IsOptional()
   @IsDateString()
   startDate?: string;
 
-  @ApiPropertyOptional({ example: '2026-06-07', description: 'ISO date YYYY-MM-DD' })
+  @ApiPropertyOptional({
+    example: '2026-06-07',
+    description: 'ISO date YYYY-MM-DD',
+  })
   @IsOptional()
   @IsDateString()
   endDate?: string;

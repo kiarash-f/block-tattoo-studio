@@ -57,7 +57,7 @@ export class AuthService {
 
   async revokeTokens(token: string) {
     try {
-      const decoded = this.jwt.decode(token) as { exp?: number } | null;
+      const decoded = this.jwt.decode(token);
       if (!decoded?.exp) return;
       const ttlSeconds = decoded.exp - Math.floor(Date.now() / 1000);
       if (ttlSeconds > 0) {

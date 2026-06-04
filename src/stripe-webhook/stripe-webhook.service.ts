@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GuestBookingStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -90,13 +86,13 @@ export class StripeWebhookService {
 
     this.email
       .sendGuestArtistBookingConfirmation({
-        to:              booking.email,
-        artistName:      booking.name,
-        startDate:       booking.startDate,
-        endDate:         booking.endDate,
-        numberOfTables:  booking.numberOfTables,
+        to: booking.email,
+        artistName: booking.name,
+        startDate: booking.startDate,
+        endDate: booking.endDate,
+        numberOfTables: booking.numberOfTables,
         numberOfDays,
-        totalPrice:      booking.totalPrice,
+        totalPrice: booking.totalPrice,
         discountPercent: booking.discountApplied,
       })
       .catch((err: unknown) =>

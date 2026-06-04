@@ -58,7 +58,10 @@ export class ArticlesService {
       content: dto.content,
     });
 
-    return this.prisma.article.update({ where: { id: article.id }, data: translations });
+    return this.prisma.article.update({
+      where: { id: article.id },
+      data: translations,
+    });
   }
 
   async findAll(query: ListArticlesDto) {
@@ -145,10 +148,11 @@ export class ArticlesService {
     if (dto.tags !== undefined) data.tags = dto.tags;
     if (dto.status !== undefined) data.status = dto.status;
 
-    const translatable: { title?: string; excerpt?: string; content?: string } = {};
-if (dto.title !== undefined) translatable.title = dto.title.trim();
-if (dto.excerpt !== undefined) translatable.excerpt = dto.excerpt?.trim();
-if (dto.content !== undefined) translatable.content = dto.content;
+    const translatable: { title?: string; excerpt?: string; content?: string } =
+      {};
+    if (dto.title !== undefined) translatable.title = dto.title.trim();
+    if (dto.excerpt !== undefined) translatable.excerpt = dto.excerpt?.trim();
+    if (dto.content !== undefined) translatable.content = dto.content;
 
     if (Object.keys(translatable).length > 0) {
       const translations = await this.translateArticle(translatable);

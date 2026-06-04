@@ -60,21 +60,17 @@ export class StripeService {
         },
       ],
       metadata: { booking_id: bookingId },
-      success_url:
-        `${this.config.getOrThrow<string>('PUBLIC_BASE_URL')}/guest-booking/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:
-        `${this.config.getOrThrow<string>('PUBLIC_BASE_URL')}/guest-booking/cancelled`,
+      success_url: `${this.config.getOrThrow<string>('PUBLIC_BASE_URL')}/guest-booking/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${this.config.getOrThrow<string>('PUBLIC_BASE_URL')}/guest-booking/cancelled`,
     });
 
     if (!session.url) {
-      this.logger.error(
-        `Stripe session created but has no URL: ${session.id}`,
-      );
+      this.logger.error(`Stripe session created but has no URL: ${session.id}`);
       throw new Error('Stripe checkout session URL is missing');
     }
 
     return {
-      sessionId:  session.id,
+      sessionId: session.id,
       paymentUrl: session.url,
     };
   }

@@ -65,8 +65,15 @@ export class BookingsController {
   constructor(private readonly bookings: BookingsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all booking requests', description: 'Returns paginated list of all booking requests. Filterable by status, search query, page, and limit.' })
-  @ApiResponse({ status: 200, description: 'Paginated list of booking requests.' })
+  @ApiOperation({
+    summary: 'List all booking requests',
+    description:
+      'Returns paginated list of all booking requests. Filterable by status, search query, page, and limit.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Paginated list of booking requests.',
+  })
   list(@Query() query: ListBookingsQueryDto) {
     return this.bookings.list({
       status: query.status,
@@ -88,27 +95,59 @@ export class BookingsController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['firstName', 'lastName', 'description', 'tattooDate', 'artistId'],
+      required: [
+        'firstName',
+        'lastName',
+        'description',
+        'tattooDate',
+        'artistId',
+      ],
       properties: {
-        firstName:       { type: 'string', example: 'Jane' },
-        lastName:        { type: 'string', example: 'Doe' },
-        email:           { type: 'string', example: 'jane@example.com' },
-        phone:           { type: 'string', example: '+49123456789' },
-        instagram:       { type: 'string', example: '@jane' },
-        description:     { type: 'string', example: 'Small rose on wrist' },
-        placement:       { type: 'string', example: 'left wrist' },
+        firstName: { type: 'string', example: 'Jane' },
+        lastName: { type: 'string', example: 'Doe' },
+        email: { type: 'string', example: 'jane@example.com' },
+        phone: { type: 'string', example: '+49123456789' },
+        instagram: { type: 'string', example: '@jane' },
+        description: { type: 'string', example: 'Small rose on wrist' },
+        placement: { type: 'string', example: 'left wrist' },
         sizeDescription: { type: 'string', example: '5x5 cm' },
-        styleNotes:      { type: 'string', example: 'blackwork' },
-        tattooDate:      { type: 'string', format: 'date-time', example: '2026-04-14T14:00:00.000Z', description: 'ISO date — use today for same-day tattoo' },
-        artistId:        { type: 'string' },
-        stationId:       { type: 'string' },
-        budgetRange:     { type: 'string', enum: ['UNDER_200', 'B200_400', 'B400_700', 'B700_1000', 'B1000_1500', 'B1500_2000', 'OVER_2000'], example: 'B200_400', description: 'Client budget range (optional, defaults to UNDER_200)' },
-        durationNote:    { type: 'string', example: '2-3 hours' },
-        images:          { type: 'array', items: { type: 'string', format: 'binary' }, description: 'Reference images (optional)' },
+        styleNotes: { type: 'string', example: 'blackwork' },
+        tattooDate: {
+          type: 'string',
+          format: 'date-time',
+          example: '2026-04-14T14:00:00.000Z',
+          description: 'ISO date — use today for same-day tattoo',
+        },
+        artistId: { type: 'string' },
+        stationId: { type: 'string' },
+        budgetRange: {
+          type: 'string',
+          enum: [
+            'UNDER_200',
+            'B200_400',
+            'B400_700',
+            'B700_1000',
+            'B1000_1500',
+            'B1500_2000',
+            'OVER_2000',
+          ],
+          example: 'B200_400',
+          description: 'Client budget range (optional, defaults to UNDER_200)',
+        },
+        durationNote: { type: 'string', example: '2-3 hours' },
+        images: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+          description: 'Reference images (optional)',
+        },
       },
     },
   })
-  @ApiResponse({ status: 201, description: 'Walk-in created. Returns bookingId and upload token for tablet.' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Walk-in created. Returns bookingId and upload token for tablet.',
+  })
   @UseInterceptors(
     FileFieldsInterceptor([{ name: 'images', maxCount: 10 }], {
       storage: memoryStorage(),
@@ -150,7 +189,11 @@ export class BookingsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get booking request detail', description: 'Returns full detail of a single booking request including client info, assignments, uploads, tattoo sessions, and scheduling.' })
+  @ApiOperation({
+    summary: 'Get booking request detail',
+    description:
+      'Returns full detail of a single booking request including client info, assignments, uploads, tattoo sessions, and scheduling.',
+  })
   @ApiParam({ name: 'id' })
   @ApiResponse({ status: 200, description: 'Booking request found.' })
   @ApiResponse({ status: 404, description: 'Booking request not found.' })
@@ -191,12 +234,12 @@ export class BookingsController {
   @ApiParam({ name: 'id' })
   @ApiBody({ type: ScheduleTattooDto })
   @ApiResponse({ status: 201, description: 'Tattoo session scheduled.' })
-  @ApiResponse({ status: 400, description: 'Booking not in CONSULT_APPROVED status.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Booking not in CONSULT_APPROVED status.',
+  })
   @ApiResponse({ status: 404, description: 'Booking not found.' })
-  scheduleTattoo(
-    @Param('id') id: string,
-    @Body() dto: ScheduleTattooDto,
-  ) {
+  scheduleTattoo(@Param('id') id: string, @Body() dto: ScheduleTattooDto) {
     return this.bookings.scheduleTattooSession(id, {
       scheduledDate: new Date(dto.scheduledDate),
       artistId: dto.artistId,

@@ -11,9 +11,9 @@ async function bootstrap() {
   // Shopify webhook HMAC-SHA256 verification at POST /webhooks/shopify/payment
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
-  const allowedOrigins = (
-    process.env.CORS_ORIGINS ?? 'http://localhost:3000'
-  ).split(',').map((o) => o.trim());
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim());
 
   app.enableCors({
     origin: allowedOrigins,

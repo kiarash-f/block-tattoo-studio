@@ -10,7 +10,8 @@ export class GoogleReviewsController {
   @Get('google')
   @ApiOperation({
     summary: 'Get cached Google reviews for the studio',
-    description: 'Returns cached Google Maps reviews for the studio. Results are refreshed periodically to avoid exceeding API quota.',
+    description:
+      'Returns cached Google Maps reviews for the studio. Results are refreshed periodically to avoid exceeding API quota.',
   })
   @ApiResponse({ status: 200, description: 'List of Google reviews.' })
   getReviews() {

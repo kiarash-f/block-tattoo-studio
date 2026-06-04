@@ -92,7 +92,6 @@ export class PublicService {
     private readonly email: EmailService,
   ) {}
 
- 
   async createBookingIntake(
     dto: CreateBookingIntakeDto,
     files: Express.Multer.File[],
@@ -307,7 +306,9 @@ export class PublicService {
         _count: {
           select: {
             bookings: {
-              where: { status: { in: ['PENDING_CONSULT', 'CONSULT_APPROVED'] } },
+              where: {
+                status: { in: ['PENDING_CONSULT', 'CONSULT_APPROVED'] },
+              },
             },
           },
         },
@@ -321,7 +322,11 @@ export class PublicService {
     }
 
     const SOFT_LIMIT = 3;
-    const days: { date: string; status: 'closed' | 'open' | 'busy'; count: number }[] = [];
+    const days: {
+      date: string;
+      status: 'closed' | 'open' | 'busy';
+      count: number;
+    }[] = [];
 
     for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

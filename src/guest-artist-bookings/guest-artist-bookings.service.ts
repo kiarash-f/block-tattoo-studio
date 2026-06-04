@@ -54,7 +54,7 @@ export class GuestArtistBookingsService {
 
   async getAvailability(startDateStr: string, endDateStr: string) {
     const startDate = parseDate(startDateStr);
-    const endDate   = parseDate(endDateStr);
+    const endDate = parseDate(endDateStr);
 
     if (endDate < startDate) {
       throw new BadRequestException('endDate must be on or after startDate');
@@ -66,7 +66,7 @@ export class GuestArtistBookingsService {
       where: {
         status: { in: ACTIVE_STATUSES },
         startDate: { lte: endDate },
-        endDate:   { gte: startDate },
+        endDate: { gte: startDate },
       },
       select: { startDate: true, endDate: true, numberOfTables: true },
     });
@@ -98,9 +98,9 @@ export class GuestArtistBookingsService {
     }
 
     return {
-      startDate:              startDateStr,
-      endDate:                endDateStr,
-      pricePerDay:            config.pricePerDay,
+      startDate: startDateStr,
+      endDate: endDateStr,
+      pricePerDay: config.pricePerDay,
       monthlyDiscountPercent: config.monthlyDiscountPercent,
       days,
     };
@@ -114,7 +114,7 @@ export class GuestArtistBookingsService {
     }
 
     const startDate = parseDate(dto.startDate);
-    const endDate   = parseDate(dto.endDate);
+    const endDate = parseDate(dto.endDate);
 
     if (endDate < startDate) {
       throw new BadRequestException('endDate must be on or after startDate');
@@ -123,12 +123,17 @@ export class GuestArtistBookingsService {
     const config = await this.configSvc.get();
 
     // ── Pricing ───────────────────────────────────────────────────────────────
-    const numberOfDays    = countDays(startDate, endDate);
-    const applyDiscount   = numberOfDays >= 30;
+    const numberOfDays = countDays(startDate, endDate);
+    const applyDiscount = numberOfDays >= 30;
     const discountPercent = applyDiscount ? config.monthlyDiscountPercent : 0;
-    const multiplier      = 1 - discountPercent / 100;
-    const totalPrice      = parseFloat(
-      (config.pricePerDay * dto.numberOfTables * numberOfDays * multiplier).toFixed(2),
+    const multiplier = 1 - discountPercent / 100;
+    const totalPrice = parseFloat(
+      (
+        config.pricePerDay *
+        dto.numberOfTables *
+        numberOfDays *
+        multiplier
+      ).toFixed(2),
     );
 
     // ── Availability check + booking creation in a single transaction ─────────
@@ -137,7 +142,7 @@ export class GuestArtistBookingsService {
         where: {
           status: { in: ACTIVE_STATUSES },
           startDate: { lte: endDate },
-          endDate:   { gte: startDate },
+          endDate: { gte: startDate },
         },
         select: { startDate: true, endDate: true, numberOfTables: true },
       });
@@ -156,33 +161,33 @@ export class GuestArtistBookingsService {
         if (already + dto.numberOfTables > config.totalTables) {
           throw new BadRequestException(
             `Not enough tables available on ${key}. ` +
-            `Available: ${config.totalTables - already}, requested: ${dto.numberOfTables}.`,
+              `Available: ${config.totalTables - already}, requested: ${dto.numberOfTables}.`,
           );
         }
       }
 
       return tx.guestArtistBooking.create({
         data: {
-          name:            dto.name,
-          phone:           dto.phone,
-          email:           dto.email,
+          name: dto.name,
+          phone: dto.phone,
+          email: dto.email,
           startDate,
           endDate,
-          numberOfTables:  dto.numberOfTables,
+          numberOfTables: dto.numberOfTables,
           totalPrice,
           discountApplied: discountPercent,
-          acknowledgment:  dto.acknowledgment,
-          status:          GuestBookingStatus.PENDING_PAYMENT,
+          acknowledgment: dto.acknowledgment,
+          status: GuestBookingStatus.PENDING_PAYMENT,
         },
       });
     });
 
     // ── Create Stripe checkout session ───────────────────────────────────────
     const { sessionId, paymentUrl } = await this.stripe.createCheckoutSession({
-      guestName:      dto.name,
-      email:          dto.email,
+      guestName: dto.name,
+      email: dto.email,
       totalPrice,
-      bookingId:      booking.id,
+      bookingId: booking.id,
       numberOfTables: dto.numberOfTables,
       numberOfDays,
       startDate,
@@ -193,7 +198,7 @@ export class GuestArtistBookingsService {
     const updatedBooking = await this.prisma.guestArtistBooking.update({
       where: { id: booking.id },
       data: {
-        stripeSessionId:  sessionId,
+        stripeSessionId: sessionId,
         stripePaymentUrl: paymentUrl,
       },
     });
@@ -201,7 +206,7 @@ export class GuestArtistBookingsService {
     // Confirmation email is sent by the webhook handler once payment is confirmed.
 
     return {
-      booking:         updatedBooking,
+      booking: updatedBooking,
       stripePaymentUrl: paymentUrl,
     };
   }
@@ -214,8 +219,12 @@ export class GuestArtistBookingsService {
     if (query.status) where.status = query.status;
 
     if (query.from || query.to) {
-      if (query.from) where.endDate   = { gte: parseDate(query.from) };
-      if (query.to)   where.startDate = { ...(where.startDate as any), lte: parseDate(query.to) };
+      if (query.from) where.endDate = { gte: parseDate(query.from) };
+      if (query.to)
+        where.startDate = {
+          ...(where.startDate as any),
+          lte: parseDate(query.to),
+        };
     }
 
     const items = await this.prisma.guestArtistBooking.findMany({
@@ -229,7 +238,9 @@ export class GuestArtistBookingsService {
   // ─── Admin: detail ────────────────────────────────────────────────────────
 
   async detail(id: string) {
-    const booking = await this.prisma.guestArtistBooking.findUnique({ where: { id } });
+    const booking = await this.prisma.guestArtistBooking.findUnique({
+      where: { id },
+    });
     if (!booking) throw new NotFoundException('Guest booking not found');
     return booking;
   }
@@ -237,46 +248,56 @@ export class GuestArtistBookingsService {
   // ─── Admin: update ────────────────────────────────────────────────────────
 
   async update(id: string, dto: UpdateGuestBookingDto) {
-    const existing = await this.prisma.guestArtistBooking.findUnique({ where: { id } });
+    const existing = await this.prisma.guestArtistBooking.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException('Guest booking not found');
 
-    const needsRecalc = dto.startDate     !== undefined ||
-                        dto.endDate       !== undefined ||
-                        dto.numberOfTables !== undefined;
+    const needsRecalc =
+      dto.startDate !== undefined ||
+      dto.endDate !== undefined ||
+      dto.numberOfTables !== undefined;
 
-    const startDate      = dto.startDate      ? parseDate(dto.startDate)      : existing.startDate;
-    const endDate        = dto.endDate        ? parseDate(dto.endDate)        : existing.endDate;
+    const startDate = dto.startDate
+      ? parseDate(dto.startDate)
+      : existing.startDate;
+    const endDate = dto.endDate ? parseDate(dto.endDate) : existing.endDate;
     const numberOfTables = dto.numberOfTables ?? existing.numberOfTables;
 
     if (endDate < startDate) {
       throw new BadRequestException('endDate must be on or after startDate');
     }
 
-    let totalPrice      = existing.totalPrice;
+    let totalPrice = existing.totalPrice;
     let discountApplied = existing.discountApplied;
 
     if (needsRecalc) {
-      const config        = await this.configSvc.get();
-      const numberOfDays  = countDays(startDate, endDate);
+      const config = await this.configSvc.get();
+      const numberOfDays = countDays(startDate, endDate);
       const applyDiscount = numberOfDays >= 30;
       const discountPercent = applyDiscount ? config.monthlyDiscountPercent : 0;
       discountApplied = discountPercent;
       totalPrice = parseFloat(
-        (config.pricePerDay * numberOfTables * numberOfDays * (1 - discountPercent / 100)).toFixed(2),
+        (
+          config.pricePerDay *
+          numberOfTables *
+          numberOfDays *
+          (1 - discountPercent / 100)
+        ).toFixed(2),
       );
     }
 
     return this.prisma.guestArtistBooking.update({
       where: { id },
       data: {
-        ...(dto.name           !== undefined ? { name: dto.name }             : {}),
-        ...(dto.phone          !== undefined ? { phone: dto.phone }           : {}),
-        ...(dto.email          !== undefined ? { email: dto.email }           : {}),
-        ...(dto.status         !== undefined ? { status: dto.status }         : {}),
-        ...(dto.startDate      !== undefined ? { startDate }                  : {}),
-        ...(dto.endDate        !== undefined ? { endDate }                    : {}),
-        ...(dto.numberOfTables !== undefined ? { numberOfTables }             : {}),
-        ...(needsRecalc                      ? { totalPrice, discountApplied } : {}),
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+        ...(dto.email !== undefined ? { email: dto.email } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        ...(dto.startDate !== undefined ? { startDate } : {}),
+        ...(dto.endDate !== undefined ? { endDate } : {}),
+        ...(dto.numberOfTables !== undefined ? { numberOfTables } : {}),
+        ...(needsRecalc ? { totalPrice, discountApplied } : {}),
       },
     });
   }
@@ -284,7 +305,9 @@ export class GuestArtistBookingsService {
   // ─── Admin: delete ────────────────────────────────────────────────────────
 
   async remove(id: string) {
-    const existing = await this.prisma.guestArtistBooking.findUnique({ where: { id } });
+    const existing = await this.prisma.guestArtistBooking.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException('Guest booking not found');
     return this.prisma.guestArtistBooking.delete({ where: { id } });
   }

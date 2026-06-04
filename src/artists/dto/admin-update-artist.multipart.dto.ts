@@ -6,7 +6,9 @@ import { UpdateArtistDto } from './update-artist.dto';
 export class AdminUpdateArtistMultipartDto extends UpdateArtistDto {
   // Override email so empty string from multipart forms is treated as absent
   @ApiPropertyOptional()
-  @Transform(({ value }) => (!value || value.trim() === '' ? undefined : value.trim()))
+  @Transform(({ value }) =>
+    !value || value.trim() === '' ? undefined : value.trim(),
+  )
   @IsOptional()
   @IsEmail()
   override email?: string;

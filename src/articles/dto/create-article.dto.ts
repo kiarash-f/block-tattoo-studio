@@ -38,7 +38,9 @@ export class CreateArticleDto {
   content!: string;
 
   @ApiPropertyOptional({ example: 'https://res.cloudinary.com/...' })
-  @Transform(({ value }) => (!value || value.trim() === '' ? undefined : value.trim()))
+  @Transform(({ value }) =>
+    !value || value.trim() === '' ? undefined : value.trim(),
+  )
   @IsOptional()
   @IsUrl()
   coverUrl?: string;
@@ -47,7 +49,11 @@ export class CreateArticleDto {
   @Transform(({ value }) => {
     if (!value || value === '') return undefined;
     if (Array.isArray(value)) return value;
-    try { return JSON.parse(value); } catch { return [value]; }
+    try {
+      return JSON.parse(value);
+    } catch {
+      return [value];
+    }
   })
   @IsOptional()
   @IsArray()

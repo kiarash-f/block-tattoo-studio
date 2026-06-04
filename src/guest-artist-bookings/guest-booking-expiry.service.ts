@@ -16,7 +16,7 @@ export class GuestBookingExpiryService {
 
     const result = await this.prisma.guestArtistBooking.updateMany({
       where: {
-        status:    GuestBookingStatus.PENDING_PAYMENT,
+        status: GuestBookingStatus.PENDING_PAYMENT,
         createdAt: { lt: cutoff },
       },
       data: { status: GuestBookingStatus.EXPIRED },

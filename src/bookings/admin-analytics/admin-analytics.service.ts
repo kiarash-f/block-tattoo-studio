@@ -90,9 +90,7 @@ export class AdminAnalyticsService {
     return { startUtc, endUtc };
   }
 
-  private async loadRows(
-    q: AnalyticsRangeQueryDto,
-  ): Promise<{
+  private async loadRows(q: AnalyticsRangeQueryDto): Promise<{
     timezone: string;
     startUtc: Date;
     endUtc: Date;

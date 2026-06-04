@@ -77,11 +77,7 @@ export class WorksService {
 
   private normalizeTags(tags: string[]) {
     return Array.from(
-      new Set(
-        tags
-          .map((t) => slugify(String(t)))
-          .filter((t) => t.length > 0),
-      ),
+      new Set(tags.map((t) => slugify(String(t))).filter((t) => t.length > 0)),
     );
   }
 }

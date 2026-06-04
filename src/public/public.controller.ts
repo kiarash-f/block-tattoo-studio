@@ -13,7 +13,14 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { ApiBody, ApiConsumes, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { PublicService } from './public.service';
 import { CreateBookingIntakeDto, IntakeSource } from './dto/booking-intake.dto';
@@ -33,13 +40,22 @@ export class PublicController {
       'Send as multipart/form-data. All fields are individual form fields. ' +
       'Optionally attach reference images via files[]. Sends a confirmation email to the client.',
   })
-  @ApiResponse({ status: 201, description: 'Booking intake submitted successfully.' })
+  @ApiResponse({
+    status: 201,
+    description: 'Booking intake submitted successfully.',
+  })
   @ApiResponse({ status: 400, description: 'Validation error.' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['firstName', 'lastName', 'consultDate', 'description', 'budgetRange'],
+      required: [
+        'firstName',
+        'lastName',
+        'consultDate',
+        'description',
+        'budgetRange',
+      ],
       properties: {
         // ── Client ────────────────────────────────────────────────────────────
         firstName: {
@@ -77,7 +93,8 @@ export class PublicController {
         consultDate: {
           type: 'string',
           example: '2026-05-10',
-          description: '(required) Chosen consult date — ISO date YYYY-MM-DD. Must be in the future and not a Sunday.',
+          description:
+            '(required) Chosen consult date — ISO date YYYY-MM-DD. Must be in the future and not a Sunday.',
         },
         description: {
           type: 'string',
@@ -86,7 +103,15 @@ export class PublicController {
         },
         budgetRange: {
           type: 'string',
-          enum: ['UNDER_200', '_200_400', '_400_700', '_700_1000', '_1000_1500', '_1500_2000', 'OVER_2000'],
+          enum: [
+            'UNDER_200',
+            '_200_400',
+            '_400_700',
+            '_700_1000',
+            '_1000_1500',
+            '_1500_2000',
+            'OVER_2000',
+          ],
           example: '_200_400',
           description: '(required) Client budget range',
         },
@@ -94,7 +119,8 @@ export class PublicController {
           type: 'string',
           enum: ['APPOINTMENT', 'CONSULTATION', 'COVER_UP'],
           example: 'APPOINTMENT',
-          description: '(optional) Type of booking. Defaults to APPOINTMENT. WALK_IN is not allowed from public form.',
+          description:
+            '(optional) Type of booking. Defaults to APPOINTMENT. WALK_IN is not allowed from public form.',
         },
         placement: {
           type: 'string',
@@ -119,23 +145,27 @@ export class PublicController {
         preferredArtistName: {
           type: 'string',
           example: 'Alex',
-          description: '(optional) Name of preferred artist. Leave empty to let the studio choose.',
+          description:
+            '(optional) Name of preferred artist. Leave empty to let the studio choose.',
         },
         preferredDateFrom: {
           type: 'string',
           example: '2026-06-01',
-          description: '(optional) Earliest preferred tattoo date — ISO date YYYY-MM-DD',
+          description:
+            '(optional) Earliest preferred tattoo date — ISO date YYYY-MM-DD',
         },
         preferredDateTo: {
           type: 'string',
           example: '2026-07-01',
-          description: '(optional) Latest preferred tattoo date — ISO date YYYY-MM-DD',
+          description:
+            '(optional) Latest preferred tattoo date — ISO date YYYY-MM-DD',
         },
         preferredTimeOfDay: {
           type: 'string',
           enum: ['MORNING', 'AFTERNOON', 'EVENING', 'ANY'],
           example: 'AFTERNOON',
-          description: '(optional) Preferred time of day for the tattoo appointment',
+          description:
+            '(optional) Preferred time of day for the tattoo appointment',
         },
         preferredDaysNote: {
           type: 'string',
@@ -146,7 +176,8 @@ export class PublicController {
         // ── Files ─────────────────────────────────────────────────────────────
         images: {
           type: 'array',
-          description: '(optional) Reference images — max 10 files, max 10 MB each. Allowed: jpeg, png, webp.',
+          description:
+            '(optional) Reference images — max 10 files, max 10 MB each. Allowed: jpeg, png, webp.',
           items: { type: 'string', format: 'binary' },
         },
       },
@@ -203,11 +234,16 @@ export class PublicController {
 
     // WALK_IN not allowed from public form
     if (parsed.bookingRequest.bookingType === 'WALK_IN') {
-      throw new BadRequestException('WALK_IN can only be created in the studio (kiosk).');
+      throw new BadRequestException(
+        'WALK_IN can only be created in the studio (kiosk).',
+      );
     }
 
     // Preferred date range validation
-    if (parsed.bookingRequest.preferredDateFrom || parsed.bookingRequest.preferredDateTo) {
+    if (
+      parsed.bookingRequest.preferredDateFrom ||
+      parsed.bookingRequest.preferredDateTo
+    ) {
       const from = parsed.bookingRequest.preferredDateFrom
         ? new Date(parsed.bookingRequest.preferredDateFrom)
         : null;
@@ -215,33 +251,47 @@ export class PublicController {
         ? new Date(parsed.bookingRequest.preferredDateTo)
         : null;
 
-      if (from && Number.isNaN(from.getTime())) throw new BadRequestException('Invalid preferredDateFrom');
-      if (to && Number.isNaN(to.getTime())) throw new BadRequestException('Invalid preferredDateTo');
-      if (from && to && to < from) throw new BadRequestException('preferredDateTo must be after preferredDateFrom');
+      if (from && Number.isNaN(from.getTime()))
+        throw new BadRequestException('Invalid preferredDateFrom');
+      if (to && Number.isNaN(to.getTime()))
+        throw new BadRequestException('Invalid preferredDateTo');
+      if (from && to && to < from)
+        throw new BadRequestException(
+          'preferredDateTo must be after preferredDateFrom',
+        );
 
       if (from) parsed.bookingRequest.preferredDateFrom = from.toISOString();
       if (to) parsed.bookingRequest.preferredDateTo = to.toISOString();
     }
 
     // Tracking fallbacks from query params / headers
-    parsed.bookingRequest.utmCampaign ??= query.utm_campaign ?? query.utmCampaign;
-    parsed.bookingRequest.utmAdset    ??= query.utm_adset ?? query.utmAdset;
-    parsed.bookingRequest.utmAd       ??= query.utm_ad ?? query.utmAd;
-    parsed.bookingRequest.referrer    ??= headers['referer'] ?? headers['referrer'];
-    parsed.bookingRequest.landingPath ??= headers['x-landing-path'] ?? query.landingPath;
-    parsed.bookingRequest.source      ??= (query.source as IntakeSource) ?? IntakeSource.DIRECT;
+    parsed.bookingRequest.utmCampaign ??=
+      query.utm_campaign ?? query.utmCampaign;
+    parsed.bookingRequest.utmAdset ??= query.utm_adset ?? query.utmAdset;
+    parsed.bookingRequest.utmAd ??= query.utm_ad ?? query.utmAd;
+    parsed.bookingRequest.referrer ??=
+      headers['referer'] ?? headers['referrer'];
+    parsed.bookingRequest.landingPath ??=
+      headers['x-landing-path'] ?? query.landingPath;
+    parsed.bookingRequest.source ??=
+      (query.source as IntakeSource) ?? IntakeSource.DIRECT;
 
     // Normalize preferredArtistName — empty string means studio chooses
     if (typeof parsed.bookingRequest.preferredArtistName === 'string') {
       const trimmed = parsed.bookingRequest.preferredArtistName.trim();
-      parsed.bookingRequest.preferredArtistName = trimmed.length ? trimmed : undefined;
+      parsed.bookingRequest.preferredArtistName = trimmed.length
+        ? trimmed
+        : undefined;
     }
     if (!parsed.bookingRequest.preferredArtistName) {
       parsed.bookingRequest.studioChooses = true;
     }
 
     const dto = plainToInstance(CreateBookingIntakeDto, parsed);
-    const errors = validateSync(dto, { whitelist: true, forbidNonWhitelisted: true });
+    const errors = validateSync(dto, {
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    });
     if (errors.length) throw new BadRequestException(errors);
 
     return this.publicService.createBookingIntake(dto, files ?? []);
@@ -254,7 +304,12 @@ export class PublicController {
       'Returns each day of the requested month with its availability status. ' +
       'Sundays are always closed. Days with 3+ booked consults are marked "busy" but still bookable — the admin can approve beyond the soft limit.',
   })
-  @ApiQuery({ name: 'month', required: true, example: '2026-05', description: 'Month in YYYY-MM format' })
+  @ApiQuery({
+    name: 'month',
+    required: true,
+    example: '2026-05',
+    description: 'Month in YYYY-MM format',
+  })
   @ApiResponse({ status: 200, description: 'Availability map for the month' })
   getAvailability(@Query('month') month: string) {
     return this.publicService.getMonthAvailability(month);

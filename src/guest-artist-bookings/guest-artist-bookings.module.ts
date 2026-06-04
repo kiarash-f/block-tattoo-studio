@@ -12,6 +12,10 @@ import { StripeModule } from '../stripe/stripe.module';
 @Module({
   imports: [StationConfigModule, StripeModule],
   controllers: [GuestBookingsPublicController, GuestBookingsAdminController],
-  providers: [GuestArtistBookingsService, GuestBookingExpiryService, PrismaService],
+  providers: [
+    GuestArtistBookingsService,
+    GuestBookingExpiryService,
+    PrismaService,
+  ],
 })
 export class GuestArtistBookingsModule {}

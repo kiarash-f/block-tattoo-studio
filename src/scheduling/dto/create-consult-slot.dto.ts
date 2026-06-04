@@ -9,7 +9,10 @@ export class CreateConsultSlotDto {
   @IsDateString()
   date!: string;
 
-  @ApiProperty({ description: 'Max concurrent consults on this date', default: 3 })
+  @ApiProperty({
+    description: 'Max concurrent consults on this date',
+    default: 3,
+  })
   @IsOptional()
   @IsInt()
   @Min(1)

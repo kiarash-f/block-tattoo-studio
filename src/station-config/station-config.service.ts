@@ -9,7 +9,10 @@ export class StationConfigService {
   async get() {
     // There is only ever one StationConfig row
     const config = await this.prisma.stationConfig.findFirst();
-    if (!config) throw new NotFoundException('Station config not set up yet. Use PATCH to create it.');
+    if (!config)
+      throw new NotFoundException(
+        'Station config not set up yet. Use PATCH to create it.',
+      );
     return config;
   }
 
@@ -20,9 +23,15 @@ export class StationConfigService {
       return this.prisma.stationConfig.update({
         where: { id: existing.id },
         data: {
-          ...(dto.totalTables !== undefined ? { totalTables: dto.totalTables } : {}),
-          ...(dto.pricePerDay !== undefined ? { pricePerDay: dto.pricePerDay } : {}),
-          ...(dto.monthlyDiscountPercent !== undefined ? { monthlyDiscountPercent: dto.monthlyDiscountPercent } : {}),
+          ...(dto.totalTables !== undefined
+            ? { totalTables: dto.totalTables }
+            : {}),
+          ...(dto.pricePerDay !== undefined
+            ? { pricePerDay: dto.pricePerDay }
+            : {}),
+          ...(dto.monthlyDiscountPercent !== undefined
+            ? { monthlyDiscountPercent: dto.monthlyDiscountPercent }
+            : {}),
         },
       });
     }

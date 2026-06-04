@@ -1,5 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  IsDateString,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class CreateTattooSessionDto {
   @ApiProperty({
@@ -14,7 +19,10 @@ export class CreateTattooSessionDto {
   @IsNotEmpty()
   artistId!: string;
 
-  @ApiPropertyOptional({ example: 'Full day', description: 'Free-text duration note' })
+  @ApiPropertyOptional({
+    example: 'Full day',
+    description: 'Free-text duration note',
+  })
   @IsOptional()
   @IsString()
   durationNote?: string;

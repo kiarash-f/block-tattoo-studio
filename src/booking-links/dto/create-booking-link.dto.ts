@@ -25,5 +25,5 @@ export class CreateBookingLinkDto {
 
   @IsOptional()
   @IsString()
-  revokeReason?: string; 
+  revokeReason?: string;
 }
