@@ -1,8 +1,8 @@
 {
-  "name": "api2",
+  "name": "block-tattoo-studio",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "Production-ready REST API for a tattoo studio — bookings, scheduling, artist management, and AI chat",
+  "author": "Kiarash Fayyaz",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
