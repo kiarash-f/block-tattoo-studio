@@ -44,11 +44,11 @@ async function bootstrap() {
     });
     app.useGlobalFilters(new prisma_exception_filter_1.PrismaExceptionFilter());
     app.use((0, helmet_1.default)());
+    const logger = new common_1.Logger('Bootstrap');
     const port = process.env.PORT ? Number(process.env.PORT) : 3102;
     await app.listen(port, '0.0.0.0');
-    console.log(`API running on http://localhost:${port}`);
-    console.log(`Swagger on http://localhost:${port}/docs`);
-    console.log('ADMIN_JWT_SECRET present:', !!process.env.ADMIN_JWT_SECRET);
+    logger.log(`API running on http://localhost:${port}`);
+    logger.log(`Swagger on http://localhost:${port}/docs`);
 }
 bootstrap();
 //# sourceMappingURL=main.js.map

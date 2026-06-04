@@ -29,6 +29,7 @@ let BookingLinksController = class BookingLinksController {
             bookingRequestId,
             scopes: dto.scopes,
             expiresAt: new Date(dto.expiresAt),
+            createdByAdminId: user.sub,
         });
         return {
             bookingRequestId,

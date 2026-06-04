@@ -33,7 +33,6 @@ let PrismaExceptionFilter = class PrismaExceptionFilter {
         response.status(status).json({
             statusCode: status,
             message,
-            prismaCode: exception.code,
             path: request?.url,
             timestamp: new Date().toISOString(),
         });

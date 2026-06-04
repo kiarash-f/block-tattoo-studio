@@ -84,7 +84,7 @@ export class BookingLinksService {
         secretHash,
         scopes: params.scopes as any, // cast if Prisma enum typing differs
         expiresAt: params.expiresAt,
-        // createdByAdminId: params.createdByAdminId ?? null, // enable if you added this field
+        createdByAdminId: params.createdByAdminId ?? null,
       },
       select: { id: true, expiresAt: true, scopes: true },
     });

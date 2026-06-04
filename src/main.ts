@@ -1,7 +1,7 @@
 import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 import helmet from 'helmet';
@@ -60,11 +60,11 @@ async function bootstrap() {
 
   app.use(helmet());
 
+  const logger = new Logger('Bootstrap');
   const port = process.env.PORT ? Number(process.env.PORT) : 3102;
   await app.listen(port, '0.0.0.0');
-  console.log(`API running on http://localhost:${port}`);
-  console.log(`Swagger on http://localhost:${port}/docs`);
-  console.log('ADMIN_JWT_SECRET present:', !!process.env.ADMIN_JWT_SECRET);
+  logger.log(`API running on http://localhost:${port}`);
+  logger.log(`Swagger on http://localhost:${port}/docs`);
 }
 
 bootstrap();

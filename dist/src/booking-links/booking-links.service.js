@@ -102,6 +102,7 @@ let BookingLinksService = class BookingLinksService {
                 secretHash,
                 scopes: params.scopes,
                 expiresAt: params.expiresAt,
+                createdByAdminId: params.createdByAdminId ?? null,
             },
             select: { id: true, expiresAt: true, scopes: true },
         });

@@ -28,7 +28,7 @@ export class BookingLinksController {
       bookingRequestId,
       scopes: dto.scopes as any,
       expiresAt: new Date(dto.expiresAt),
-      // createdByAdminId: user.sub, // enable if you added this column in Prisma
+      createdByAdminId: user.sub,
     });
 
     return {
