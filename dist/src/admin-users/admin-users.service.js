@@ -104,12 +104,12 @@ let AdminUsersService = class AdminUsersService {
             if (conflict && conflict.id !== id) {
                 throw new common_1.ConflictException('Email already in use');
             }
-            return this.prisma.adminUser.update({
-                where: { id },
-                data: dto,
-                select: SAFE_SELECT,
-            });
         }
+        return this.prisma.adminUser.update({
+            where: { id },
+            data: dto,
+            select: SAFE_SELECT,
+        });
     }
     async deactivate(id) {
         await this.findOne(id);

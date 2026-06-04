@@ -50,7 +50,7 @@ export declare class AdminUsersController {
         lastLoginAt: Date | null;
         createdAt: Date;
         updatedAt: Date;
-    } | undefined>;
+    }>;
     deactivate(id: string): Promise<{
         id: string;
         email: string;

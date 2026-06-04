@@ -43,6 +43,12 @@ let PublicBookingController = class PublicBookingController {
         if (!files?.length) {
             throw new common_1.BadRequestException('no files uploaded');
         }
+        const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp']);
+        for (const f of files) {
+            if (!allowedMimeTypes.has(f.mimetype)) {
+                throw new common_1.BadRequestException(`Invalid file type for "${f.originalname}". Got "${f.mimetype}". Allowed: image/jpeg, image/png, image/webp`);
+            }
+        }
         const { bookingRequestId, tokenId } = req.publicToken;
         const kind = body.kind && Object.values(client_1.UploadKind).includes(body.kind)
             ? body.kind

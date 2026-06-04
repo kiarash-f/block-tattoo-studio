@@ -197,7 +197,7 @@ export class BookingsService {
         .sendBookingRejected({
           to: updated.client.email,
           clientName:
-            `${updated.client.firstName}${updated.client.lastName}`.trim(),
+            `${updated.client.firstName} ${updated.client.lastName}`.trim(),
         })
         .catch(() => void 0);
     }
@@ -261,7 +261,7 @@ export class BookingsService {
         .sendSessionReminder({
           to: booking.client.email,
           clientName:
-            `${booking.client.firstName}${booking.client.lastName}`.trim(),
+            `${booking.client.firstName} ${booking.client.lastName}`.trim(),
           sessionDate: data.scheduledDate,
           artistName: artist.displayName,
         })
@@ -392,7 +392,7 @@ export class BookingsService {
         .sendBookingConfirmation({
           to: result.client.email,
           clientName:
-            `${result.client.firstName}${result.client.lastName}`.trim(),
+            `${result.client.firstName} ${result.client.lastName}`.trim(),
           bookingRequestId: result.booking.id,
         })
         .catch(() => void 0);

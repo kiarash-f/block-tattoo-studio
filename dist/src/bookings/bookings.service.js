@@ -150,7 +150,7 @@ let BookingsService = class BookingsService {
             this.email
                 .sendBookingRejected({
                 to: updated.client.email,
-                clientName: `${updated.client.firstName}${updated.client.lastName}`.trim(),
+                clientName: `${updated.client.firstName} ${updated.client.lastName}`.trim(),
             })
                 .catch(() => void 0);
         }
@@ -195,7 +195,7 @@ let BookingsService = class BookingsService {
             this.email
                 .sendSessionReminder({
                 to: booking.client.email,
-                clientName: `${booking.client.firstName}${booking.client.lastName}`.trim(),
+                clientName: `${booking.client.firstName} ${booking.client.lastName}`.trim(),
                 sessionDate: data.scheduledDate,
                 artistName: artist.displayName,
             })
@@ -293,7 +293,7 @@ let BookingsService = class BookingsService {
             this.email
                 .sendBookingConfirmation({
                 to: result.client.email,
-                clientName: `${result.client.firstName}${result.client.lastName}`.trim(),
+                clientName: `${result.client.firstName} ${result.client.lastName}`.trim(),
                 bookingRequestId: result.booking.id,
             })
                 .catch(() => void 0);

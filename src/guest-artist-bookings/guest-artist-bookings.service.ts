@@ -122,35 +122,6 @@ export class GuestArtistBookingsService {
 
     const config = await this.configSvc.get();
 
-    // ── Availability check ────────────────────────────────────────────────────
-    const overlapping = await this.prisma.guestArtistBooking.findMany({
-      where: {
-        status: { in: ACTIVE_STATUSES },
-        startDate: { lte: endDate },
-        endDate:   { gte: startDate },
-      },
-      select: { startDate: true, endDate: true, numberOfTables: true },
-    });
-
-    const bookedMap = new Map<string, number>();
-    for (const b of overlapping) {
-      for (const day of eachDay(b.startDate, b.endDate)) {
-        const key = day.toISOString().slice(0, 10);
-        bookedMap.set(key, (bookedMap.get(key) ?? 0) + b.numberOfTables);
-      }
-    }
-
-    for (const day of eachDay(startDate, endDate)) {
-      const key = day.toISOString().slice(0, 10);
-      const already = bookedMap.get(key) ?? 0;
-      if (already + dto.numberOfTables > config.totalTables) {
-        throw new BadRequestException(
-          `Not enough tables available on ${key}. ` +
-          `Available: ${config.totalTables - already}, requested: ${dto.numberOfTables}.`,
-        );
-      }
-    }
-
     // ── Pricing ───────────────────────────────────────────────────────────────
     const numberOfDays    = countDays(startDate, endDate);
     const applyDiscount   = numberOfDays >= 30;
@@ -160,20 +131,50 @@ export class GuestArtistBookingsService {
       (config.pricePerDay * dto.numberOfTables * numberOfDays * multiplier).toFixed(2),
     );
 
-    // ── Persist booking ───────────────────────────────────────────────────────
-    const booking = await this.prisma.guestArtistBooking.create({
-      data: {
-        name:            dto.name,
-        phone:           dto.phone,
-        email:           dto.email,
-        startDate,
-        endDate,
-        numberOfTables:  dto.numberOfTables,
-        totalPrice,
-        discountApplied: discountPercent,
-        acknowledgment:  dto.acknowledgment,
-        status:          GuestBookingStatus.PENDING_PAYMENT,
-      },
+    // ── Availability check + booking creation in a single transaction ─────────
+    const booking = await this.prisma.$transaction(async (tx) => {
+      const overlapping = await tx.guestArtistBooking.findMany({
+        where: {
+          status: { in: ACTIVE_STATUSES },
+          startDate: { lte: endDate },
+          endDate:   { gte: startDate },
+        },
+        select: { startDate: true, endDate: true, numberOfTables: true },
+      });
+
+      const bookedMap = new Map<string, number>();
+      for (const b of overlapping) {
+        for (const day of eachDay(b.startDate, b.endDate)) {
+          const key = day.toISOString().slice(0, 10);
+          bookedMap.set(key, (bookedMap.get(key) ?? 0) + b.numberOfTables);
+        }
+      }
+
+      for (const day of eachDay(startDate, endDate)) {
+        const key = day.toISOString().slice(0, 10);
+        const already = bookedMap.get(key) ?? 0;
+        if (already + dto.numberOfTables > config.totalTables) {
+          throw new BadRequestException(
+            `Not enough tables available on ${key}. ` +
+            `Available: ${config.totalTables - already}, requested: ${dto.numberOfTables}.`,
+          );
+        }
+      }
+
+      return tx.guestArtistBooking.create({
+        data: {
+          name:            dto.name,
+          phone:           dto.phone,
+          email:           dto.email,
+          startDate,
+          endDate,
+          numberOfTables:  dto.numberOfTables,
+          totalPrice,
+          discountApplied: discountPercent,
+          acknowledgment:  dto.acknowledgment,
+          status:          GuestBookingStatus.PENDING_PAYMENT,
+        },
+      });
     });
 
     // ── Create Stripe checkout session ───────────────────────────────────────

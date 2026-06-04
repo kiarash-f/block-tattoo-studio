@@ -56,6 +56,7 @@ exports.envValidationSchema = Joi.object({
     GOOGLE_PLACE_ID: Joi.string().optional().allow(''),
     GOOGLE_REVIEWS_CACHE_TTL: Joi.number().default(3600),
     ANTHROPIC_API_KEY: Joi.string().optional().allow(''),
+    DEEPL_API_KEY: Joi.string().optional().allow(''),
     STRIPE_SECRET_KEY: Joi.string().required(),
     STRIPE_WEBHOOK_SECRET: Joi.string().required(),
     RESEND_API_KEY: Joi.string().optional().allow(''),

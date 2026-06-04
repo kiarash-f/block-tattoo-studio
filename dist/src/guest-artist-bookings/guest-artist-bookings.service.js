@@ -95,47 +95,49 @@ let GuestArtistBookingsService = GuestArtistBookingsService_1 = class GuestArtis
             throw new common_1.BadRequestException('endDate must be on or after startDate');
         }
         const config = await this.configSvc.get();
-        const overlapping = await this.prisma.guestArtistBooking.findMany({
-            where: {
-                status: { in: ACTIVE_STATUSES },
-                startDate: { lte: endDate },
-                endDate: { gte: startDate },
-            },
-            select: { startDate: true, endDate: true, numberOfTables: true },
-        });
-        const bookedMap = new Map();
-        for (const b of overlapping) {
-            for (const day of eachDay(b.startDate, b.endDate)) {
-                const key = day.toISOString().slice(0, 10);
-                bookedMap.set(key, (bookedMap.get(key) ?? 0) + b.numberOfTables);
-            }
-        }
-        for (const day of eachDay(startDate, endDate)) {
-            const key = day.toISOString().slice(0, 10);
-            const already = bookedMap.get(key) ?? 0;
-            if (already + dto.numberOfTables > config.totalTables) {
-                throw new common_1.BadRequestException(`Not enough tables available on ${key}. ` +
-                    `Available: ${config.totalTables - already}, requested: ${dto.numberOfTables}.`);
-            }
-        }
         const numberOfDays = countDays(startDate, endDate);
         const applyDiscount = numberOfDays >= 30;
         const discountPercent = applyDiscount ? config.monthlyDiscountPercent : 0;
         const multiplier = 1 - discountPercent / 100;
         const totalPrice = parseFloat((config.pricePerDay * dto.numberOfTables * numberOfDays * multiplier).toFixed(2));
-        const booking = await this.prisma.guestArtistBooking.create({
-            data: {
-                name: dto.name,
-                phone: dto.phone,
-                email: dto.email,
-                startDate,
-                endDate,
-                numberOfTables: dto.numberOfTables,
-                totalPrice,
-                discountApplied: discountPercent,
-                acknowledgment: dto.acknowledgment,
-                status: client_1.GuestBookingStatus.PENDING_PAYMENT,
-            },
+        const booking = await this.prisma.$transaction(async (tx) => {
+            const overlapping = await tx.guestArtistBooking.findMany({
+                where: {
+                    status: { in: ACTIVE_STATUSES },
+                    startDate: { lte: endDate },
+                    endDate: { gte: startDate },
+                },
+                select: { startDate: true, endDate: true, numberOfTables: true },
+            });
+            const bookedMap = new Map();
+            for (const b of overlapping) {
+                for (const day of eachDay(b.startDate, b.endDate)) {
+                    const key = day.toISOString().slice(0, 10);
+                    bookedMap.set(key, (bookedMap.get(key) ?? 0) + b.numberOfTables);
+                }
+            }
+            for (const day of eachDay(startDate, endDate)) {
+                const key = day.toISOString().slice(0, 10);
+                const already = bookedMap.get(key) ?? 0;
+                if (already + dto.numberOfTables > config.totalTables) {
+                    throw new common_1.BadRequestException(`Not enough tables available on ${key}. ` +
+                        `Available: ${config.totalTables - already}, requested: ${dto.numberOfTables}.`);
+                }
+            }
+            return tx.guestArtistBooking.create({
+                data: {
+                    name: dto.name,
+                    phone: dto.phone,
+                    email: dto.email,
+                    startDate,
+                    endDate,
+                    numberOfTables: dto.numberOfTables,
+                    totalPrice,
+                    discountApplied: discountPercent,
+                    acknowledgment: dto.acknowledgment,
+                    status: client_1.GuestBookingStatus.PENDING_PAYMENT,
+                },
+            });
         });
         const { sessionId, paymentUrl } = await this.stripe.createCheckoutSession({
             guestName: dto.name,
