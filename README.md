@@ -154,17 +154,6 @@ npm run test:cov
 npm run test:e2e
 ```
 
-## What I Learned
-
-Building this for a real client pushed me into problems I hadn't faced before:
-
-- **Stateless client links without accounts** — The booking link token system required storing only a hashed secret (never the raw token), scoping tokens to specific actions (upload vs. view vs. continue intake), and enforcing expiry and use-count limits. Essentially building a lightweight, single-purpose auth system inside the main auth system.
-- **Prisma schema design at scale** — The booking model has 20+ fields, multiple optional relations, and 15+ composite indexes tuned for the specific query patterns the admin dashboard uses (filtering by status + date range, source + booking type, etc.). Getting this right without over-indexing was a careful process.
-- **Redis caching in NestJS** — Integrating `@nestjs/cache-manager` with the Keyv Redis adapter for module-level response caching, and knowing when *not* to cache (anything that changes per-request or per-user).
-- **Integrating the Anthropic SDK** — Streaming Claude responses through a chat endpoint, handling token limits gracefully, and shaping the system prompt to stay on-topic for a studio context.
-- **Joi-validated config at startup** — Catching missing environment variables at boot time rather than at runtime was a small change with a big operational payoff.
-- **Audit trails on sensitive operations** — Tracking which admin reviewed a booking, who submitted a medical form, and when — without turning the schema into an event log — required careful relation design.
-
 ## License
 
 UNLICENSED — private project.
