@@ -63,12 +63,15 @@ exports.AppModule = AppModule = __decorate([
                 isGlobal: true,
                 inject: [config_1.ConfigService],
                 useFactory: (config) => {
-                    const host = config.get('REDIS_HOST') ?? 'localhost';
-                    const port = config.get('REDIS_PORT') ?? 6379;
-                    const password = config.get('REDIS_PASSWORD');
-                    const redisUrl = password
-                        ? `redis://:${password}@${host}:${port}`
-                        : `redis://${host}:${port}`;
+                    const redisUrl = config.get('REDIS_URL') ??
+                        (() => {
+                            const host = config.get('REDIS_HOST') ?? 'localhost';
+                            const port = config.get('REDIS_PORT') ?? 6379;
+                            const password = config.get('REDIS_PASSWORD');
+                            return password
+                                ? `redis://:${password}@${host}:${port}`
+                                : `redis://${host}:${port}`;
+                        })();
                     return {
                         stores: [
                             (0, redis_1.createKeyv)({ url: redisUrl, socket: { connectTimeout: 3000 } }, { throwOnConnectError: false }),
