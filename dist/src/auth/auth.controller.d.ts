@@ -16,5 +16,5 @@ export declare class AuthController {
     }>;
     logout(authHeader: string): Promise<{
         message: string;
-    } | undefined>;
+    }>;
 }

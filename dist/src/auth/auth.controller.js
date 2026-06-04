@@ -33,8 +33,9 @@ let AuthController = class AuthController {
     async logout(authHeader) {
         const token = authHeader?.replace('Bearer ', '').trim();
         if (token) {
-            return { message: 'Logged out successfully.' };
+            await this.auth.revokeTokens(token);
         }
+        return { message: 'Logged out successfully.' };
     }
 };
 exports.AuthController = AuthController;

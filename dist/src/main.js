@@ -12,8 +12,9 @@ const prisma_exception_filter_1 = require("./common/filters/prisma-exception.fil
 const helmet_1 = __importDefault(require("helmet"));
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule, { rawBody: true });
+    const allowedOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000').split(',').map((o) => o.trim());
     app.enableCors({
-        origin: ['http://localhost:3000', 'http://192.168.178.127:3000'],
+        origin: allowedOrigins,
         credentials: true,
     });
     app.useGlobalPipes(new common_1.ValidationPipe({

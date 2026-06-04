@@ -21,7 +21,6 @@ const create_admin_user_dto_1 = require("./dto/create-admin-user.dto");
 const list_admin_users_dto_1 = require("./dto/list-admin-users.dto");
 const change_password_dto_1 = require("./dto/change-password.dto");
 const update_admin_user_dto_1 = require("./dto/update-admin-user.dto");
-(0, swagger_1.ApiTags)('Admin / Users');
 let AdminUsersController = class AdminUsersController {
     service;
     constructor(service) {
@@ -52,10 +51,11 @@ let AdminUsersController = class AdminUsersController {
 exports.AdminUsersController = AdminUsersController;
 __decorate([
     (0, common_1.Post)('seed'),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, swagger_1.ApiBearerAuth)('admin-jwt'),
     (0, swagger_1.ApiOperation)({
         summary: 'First-time admin setup',
-        description: 'Creates the first admin account. Fails with 400 if any admin already exists. ' +
-            'Remove or protect this endpoint after first deployment.',
+        description: 'Creates the first admin account. Fails with 400 if any admin already exists.',
     }),
     (0, swagger_1.ApiResponse)({ status: 201, description: 'Admin user created.' }),
     (0, swagger_1.ApiResponse)({ status: 400, description: 'Admin user already exists.' }),
@@ -143,6 +143,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AdminUsersController.prototype, "changePassword", null);
 exports.AdminUsersController = AdminUsersController = __decorate([
+    (0, swagger_1.ApiTags)('Admin / Users'),
     (0, common_1.Controller)('admin/users'),
     __metadata("design:paramtypes", [admin_users_service_1.AdminUsersService])
 ], AdminUsersController);

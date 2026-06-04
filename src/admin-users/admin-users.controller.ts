@@ -23,19 +23,18 @@ import { ListAdminUsersDto } from './dto/list-admin-users.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 
-// ── Unauthenticated bootstrap (first-run only) ────────────────────────────────
-
-ApiTags('Admin / Users');
+@ApiTags('Admin / Users')
 @Controller('admin/users')
 export class AdminUsersController {
   constructor(private readonly service: AdminUsersService) {}
 
   @Post('seed')
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth('admin-jwt')
   @ApiOperation({
     summary: 'First-time admin setup',
     description:
-      'Creates the first admin account. Fails with 400 if any admin already exists. ' +
-      'Remove or protect this endpoint after first deployment.',
+      'Creates the first admin account. Fails with 400 if any admin already exists.',
   })
   @ApiResponse({ status: 201, description: 'Admin user created.' })
   @ApiResponse({ status: 400, description: 'Admin user already exists.' })

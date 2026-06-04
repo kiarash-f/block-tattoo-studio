@@ -64,7 +64,8 @@ export class AuthController {
   async logout(@Headers('authorization') authHeader: string) {
     const token = authHeader?.replace('Bearer ', '').trim();
     if (token) {
-      return { message: 'Logged out successfully.' };
+      await this.auth.revokeTokens(token);
     }
+    return { message: 'Logged out successfully.' };
   }
 }

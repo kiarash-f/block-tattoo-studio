@@ -37,6 +37,6 @@ require("dotenv/config");
 const Sentry = __importStar(require("@sentry/nestjs"));
 Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    sendDefaultPii: true,
+    sendDefaultPii: false,
 });
 //# sourceMappingURL=instrument.js.map
