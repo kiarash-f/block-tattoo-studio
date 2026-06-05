@@ -52,6 +52,9 @@ export class ArtistsService {
           )
         : [];
 
+    // Translate BEFORE the transaction to avoid Prisma transaction timeout
+    const translations = await this.translateBio(dto.bio);
+
     return this.prisma.$transaction(async (tx) => {
       await this.assertUniqueFields(
         {
@@ -74,12 +77,8 @@ export class ArtistsService {
           bio: dto.bio,
           avatarUrl: dto.avatarUrl,
           coverUrl,
+          ...translations,
         },
-      });
-      const translation = await this.translateBio(dto.bio);
-      await tx.artist.update({
-        where: { id: artist.id },
-        data: translation,
       });
 
       if (uploadedWorks.length > 0) {
@@ -163,6 +162,12 @@ export class ArtistsService {
           )
         : [];
 
+    // Translate BEFORE the transaction to avoid Prisma transaction timeout
+    if (has(dto.bio)) {
+      const translations = await this.translateBio(dto.bio);
+      Object.assign(data, translations);
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const handle = typeof data.handle === 'string' ? data.handle : undefined;
       const email = typeof data.email === 'string' ? data.email : undefined;
@@ -174,13 +179,6 @@ export class ArtistsService {
         where: { id },
         data,
       });
-      if (has(dto.bio)) {
-        const translation = await this.translateBio(dto.bio);
-        await tx.artist.update({
-          where: { id: updated.id },
-          data: translation,
-        });
-      }
 
       if (uploadedWorks.length > 0) {
         const createData: Prisma.ArtistWorkCreateManyInput[] =

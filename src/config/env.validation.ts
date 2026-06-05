@@ -33,7 +33,7 @@ export const envValidationSchema = Joi.object({
   ANTHROPIC_API_KEY: Joi.string().optional().allow(''),
 
   // DeepL
-  DEEPL_API_KEY: Joi.string().optional().allow(''),
+  DEEPL_API_KEY: Joi.string().required(),
 
   // Stripe
   STRIPE_SECRET_KEY: Joi.string().required(),

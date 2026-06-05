@@ -117,6 +117,8 @@ export class PublicArtistsService {
         avatarUrl: true,
         coverUrl: true,
         bio: true,
+        bioDe: true,
+        bioEn: true,
       },
     });
 

@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as deepl from 'deepl-node';
 
 @Injectable()
 export class TranslationService {
   private translator: deepl.Translator;
 
-  constructor() {
-    this.translator = new deepl.Translator(process.env.DEEPL_API_KEY!);
+  constructor(private readonly config: ConfigService) {
+    this.translator = new deepl.Translator(this.config.get<string>('DEEPL_API_KEY')!);
   }
 
   async translate(text: string, targetLang: string): Promise<string> {
