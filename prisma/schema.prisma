@@ -245,6 +245,8 @@ model BookingRequest {
   @@index([checkedInAt])
   @@index([inStudioCompletedAt])
   @@index([consultSlotId])
+  @@index([reviewedByAdminId])
+  @@index([checkedInByAdminId])
 }
 
 model MedicalDeclaration {
@@ -347,6 +349,7 @@ model BookingLinkToken {
 
   @@index([bookingRequestId])
   @@index([status, expiresAt])
+  @@index([createdByAdminId])
 }
 
 model Artist {
@@ -440,6 +443,8 @@ model BookingAssignment {
   @@index([bookingRequestId])
   @@index([artistId])
   @@index([stationId])
+  @@index([startsAt])
+  @@index([role, startsAt]) // daily calendar filter: role=PRIMARY + startsAt range
 }
 
 model Article {
@@ -538,6 +543,7 @@ model TattooSession {
 
   @@index([bookingRequestId])
   @@index([artistId])
+  @@index([stationId])
   @@index([scheduledDate])
 }
 

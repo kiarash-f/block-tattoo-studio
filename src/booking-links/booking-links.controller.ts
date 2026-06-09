@@ -39,7 +39,7 @@ export class BookingLinksController {
 
     const result = await this.tokens.createToken({
       bookingRequestId,
-      scopes: dto.scopes as any,
+      scopes: dto.scopes as ('INTAKE_CONTINUE' | 'UPLOAD' | 'VIEW')[],
       expiresAt: new Date(dto.expiresAt),
       createdByAdminId: user.sub,
     });

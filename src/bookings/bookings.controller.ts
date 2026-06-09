@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -155,14 +156,21 @@ export class BookingsController {
     }),
   )
   createWalkIn(
-    @Body() body: any,
+    @Body() body: Record<string, string>,
     @Req() req: any,
     @UploadedFiles() files: { images?: Express.Multer.File[] },
   ) {
     const user = req.user as AdminJwtPayload;
+
+    if (!body.firstName?.trim()) throw new BadRequestException('firstName is required');
+    if (!body.lastName?.trim()) throw new BadRequestException('lastName is required');
+    if (!body.description?.trim()) throw new BadRequestException('description is required');
+    if (!body.artistId?.trim()) throw new BadRequestException('artistId is required');
+    if (!body.tattooDate) throw new BadRequestException('tattooDate is required');
+
     const tattooDate = new Date(body.tattooDate);
     if (Number.isNaN(tattooDate.getTime())) {
-      throw new Error('Invalid tattooDate');
+      throw new BadRequestException('Invalid tattooDate — expected ISO date string');
     }
     return this.bookings.createWalkIn(
       user.sub,
@@ -175,7 +183,7 @@ export class BookingsController {
           instagram: body.instagram || undefined,
         },
         description: body.description,
-        budgetRange: body.budgetRange || undefined,
+        budgetRange: body.budgetRange as any || undefined,
         tattooDate,
         artistId: body.artistId,
         stationId: body.stationId || undefined,

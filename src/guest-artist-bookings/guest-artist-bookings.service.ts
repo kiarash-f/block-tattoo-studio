@@ -222,17 +222,26 @@ export class GuestArtistBookingsService {
       if (query.from) where.endDate = { gte: parseDate(query.from) };
       if (query.to)
         where.startDate = {
-          ...(where.startDate as any),
+          ...(where.startDate as Prisma.DateTimeFilter | undefined),
           lte: parseDate(query.to),
         };
     }
 
-    const items = await this.prisma.guestArtistBooking.findMany({
-      where,
-      orderBy: { startDate: 'asc' },
-    });
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
 
-    return { total: items.length, items };
+    const [total, items] = await this.prisma.$transaction([
+      this.prisma.guestArtistBooking.count({ where }),
+      this.prisma.guestArtistBooking.findMany({
+        where,
+        orderBy: { startDate: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return { total, page, limit, items };
   }
 
   // ─── Admin: detail ────────────────────────────────────────────────────────

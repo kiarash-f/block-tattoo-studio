@@ -32,6 +32,7 @@ import { StripeModule } from './stripe/stripe.module';
 import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-bookings.module';
 import { StripeWebhookModule } from './stripe-webhook/stripe-webhook.module';
 import { TranslationModule } from './translation/translation.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 @Module({
   imports: [
     SentryModule.forRoot(),
@@ -94,6 +95,7 @@ import { TranslationModule } from './translation/translation.module';
     GuestArtistBookingsModule,
     StripeWebhookModule,
     TranslationModule,
+    CampaignsModule,
   ],
   controllers: [AppController],
   providers: [
