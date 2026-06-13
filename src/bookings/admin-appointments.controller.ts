@@ -7,7 +7,7 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
-import { ListAppointmentsQueryDto } from './dto/list-appointments.query.dto';
+import { ListAppointmentsQueryDto, AppointmentPeriod } from './dto/list-appointments.query.dto';
 
 @ApiTags('Admin / Bookings')
 @ApiBearerAuth('admin-jwt')
@@ -18,22 +18,17 @@ export class AdminAppointmentsController {
 
   @Get()
   @ApiOperation({
-    summary: 'List appointments for a specific day',
+    summary: 'Admin calendar — consults + tattoo sessions',
     description:
-      'Returns all bookings that have a PRIMARY assignment with a startsAt on the given date. Used for the admin daily schedule view. Requires date (YYYY-MM-DD) query param.',
+      'Returns all consults (PENDING_CONSULT, CONSULT_APPROVED) and tattoo sessions (TATTOO_SCHEDULED, COMPLETED) ' +
+      'within the requested period. period=day|week|month|year, anchored on date (YYYY-MM-DD).',
   })
-  @ApiResponse({
-    status: 200,
-    description: 'List of appointments for the day.',
-  })
+  @ApiResponse({ status: 200, description: 'Calendar events for the period.' })
   list(@Query() query: ListAppointmentsQueryDto) {
-    return this.bookings.listDailyAppointments({
+    return this.bookings.listAppointments({
       date: query.date,
+      period: query.period ?? AppointmentPeriod.DAY,
       timezone: query.timezone ?? 'Europe/Berlin',
-      status: query.status,
-      bookingType: query.bookingType,
-      artistId: query.artistId,
-      stationId: query.stationId,
     });
   }
 }

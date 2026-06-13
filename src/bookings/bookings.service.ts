@@ -16,7 +16,7 @@ import {
 } from '@prisma/client';
 import { MediaService } from '../media/media.service';
 import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake.dto';
-import { getUtcRangeForZonedDate } from '../common/time/zoned-date-range';
+import { getUtcRangeForZonedDate, getUtcRangeForPeriod, Period } from '../common/time/zoned-date-range';
 
 const ALLOWED_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   PENDING_CONSULT: ['CONSULT_APPROVED', 'CANCELLED'],
@@ -538,67 +538,75 @@ export class BookingsService {
     return this.getPublicIntake(bookingRequestId);
   }
 
-  async listDailyAppointments(params: {
-    date: string; // YYYY-MM-DD
-    timezone: string; // IANA, default Europe/Berlin
-    status?: BookingStatus;
-    bookingType?: any;
-    artistId?: string;
-    stationId?: string;
+  async listAppointments(params: {
+    date: string;
+    period: Period;
+    timezone: string;
   }) {
-    const { date, timezone, status, bookingType, artistId, stationId } = params;
+    const { date, period, timezone } = params;
 
-    let range: { startUtc: Date; endUtc: Date };
+    let range: { startUtc: Date; endUtc: Date; startDate: string; endDate: string };
     try {
-      range = getUtcRangeForZonedDate(date, timezone);
+      range = getUtcRangeForPeriod(date, period, timezone);
     } catch {
       throw new BadRequestException('Invalid date or timezone');
     }
 
-    const { startUtc, endUtc } = range;
+    const { startUtc, endUtc, startDate, endDate } = range;
 
-    const where: Prisma.BookingRequestWhereInput = {
-      ...(status ? { status } : {}),
-      ...(bookingType ? { bookingType } : {}),
-      assignments: {
-        some: {
-          role: AssignmentRole.PRIMARY,
-          startsAt: { gte: startUtc, lt: endUtc },
-          ...(artistId ? { artistId } : {}),
-          ...(stationId ? { stationId } : {}),
-        },
+    // Consults: PENDING_CONSULT or CONSULT_APPROVED with consultDate in range
+    const consults = await this.prisma.bookingRequest.findMany({
+      where: {
+        status: { in: [BookingStatus.PENDING_CONSULT, BookingStatus.CONSULT_APPROVED] },
+        consultDate: { gte: startUtc, lt: endUtc },
       },
-    };
-
-    const items = await this.prisma.bookingRequest.findMany({
-      where,
-      include: {
-        client: true,
-        assignments: {
-          include: { artist: true, station: true },
-          orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
-        },
-        uploads: { orderBy: { createdAt: 'desc' } },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], // stable fallback
+      include: { client: true },
+      orderBy: { consultDate: 'asc' },
     });
 
-    // Sort by PRIMARY startsAt (DB can't order by _min on relation in findMany)
-    items.sort((a, b) => {
-      const aStart =
-        a.assignments.find((x) => x.role === AssignmentRole.PRIMARY)
-          ?.startsAt ?? new Date(8640000000000000);
-      const bStart =
-        b.assignments.find((x) => x.role === AssignmentRole.PRIMARY)
-          ?.startsAt ?? new Date(8640000000000000);
+    // Tattoo sessions: TATTOO_SCHEDULED or COMPLETED with a TattooSession.scheduledDate in range
+    const tattooBookings = await this.prisma.bookingRequest.findMany({
+      where: {
+        status: { in: [BookingStatus.TATTOO_SCHEDULED, BookingStatus.COMPLETED] },
+        tattooSessions: {
+          some: { scheduledDate: { gte: startUtc, lt: endUtc } },
+        },
+      },
+      include: {
+        client: true,
+        tattooSessions: {
+          where: { scheduledDate: { gte: startUtc, lt: endUtc } },
+          include: { artist: true },
+          orderBy: { scheduledDate: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
 
-      return aStart.getTime() - bStart.getTime();
+    const consultEvents = consults.map((b) => ({
+      eventType: 'CONSULT' as const,
+      scheduledFor: b.consultDate,
+      booking: b,
+    }));
+
+    const tattooEvents = tattooBookings.map((b) => ({
+      eventType: 'TATTOO' as const,
+      scheduledFor: b.tattooSessions[0]?.scheduledDate ?? null,
+      booking: b,
+    }));
+
+    const items = [...consultEvents, ...tattooEvents].sort((a, b) => {
+      const aTime = a.scheduledFor?.getTime() ?? Infinity;
+      const bTime = b.scheduledFor?.getTime() ?? Infinity;
+      return aTime - bTime;
     });
 
     return {
+      period,
       date,
+      startDate,
+      endDate,
       timezone,
-      range: { startUtc, endUtc },
       total: items.length,
       items,
     };
