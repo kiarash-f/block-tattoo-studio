@@ -71,7 +71,14 @@ export class BookingsService {
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
-        include: { client: true },
+        include: {
+          client: true,
+          tattooSessions: {
+            orderBy: { scheduledDate: 'asc' },
+            take: 1,
+            select: { scheduledDate: true, artistId: true, artist: { select: { id: true, displayName: true } } },
+          },
+        },
       }),
     ]);
 
@@ -86,6 +93,10 @@ export class BookingsService {
         medicalDeclaration: true,
         consent: true,
         uploads: { orderBy: { createdAt: 'desc' } },
+        tattooSessions: {
+          orderBy: { scheduledDate: 'asc' },
+          include: { artist: { select: { id: true, displayName: true } } },
+        },
         assignments: {
           include: { artist: true, station: true },
           orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
@@ -246,6 +257,7 @@ export class BookingsService {
           durationNote: data.durationNote,
           notes: data.notes,
         },
+        include: { artist: { select: { id: true, displayName: true } } },
       });
 
       await tx.bookingRequest.update({

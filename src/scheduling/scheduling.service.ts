@@ -21,24 +21,32 @@ export class SchedulingService {
   // ─── Consult Slots ────────────────────────────────────────────────────────
 
   async createConsultSlot(dto: CreateConsultSlotDto) {
-    const date = new Date(dto.date);
+    const now = new Date();
+    const maxCount = dto.maxCount ?? 3;
+    const created: { id: string; date: Date; maxCount: number; createdAt: Date; updatedAt: Date }[] = [];
+    const skipped: { date: string; reason: string }[] = [];
 
-    if (date <= new Date()) {
-      throw new BadRequestException('Consult slot date must be in the future');
+    for (const raw of dto.dates) {
+      const date = new Date(raw);
+
+      if (date <= now) {
+        skipped.push({ date: raw, reason: 'date is in the past' });
+        continue;
+      }
+
+      const existing = await this.prisma.consultSlot.findUnique({ where: { date } });
+      if (existing) {
+        skipped.push({ date: raw, reason: 'slot already exists' });
+        continue;
+      }
+
+      const slot = await this.prisma.consultSlot.create({
+        data: { date, maxCount },
+      });
+      created.push(slot);
     }
 
-    const existing = await this.prisma.consultSlot.findUnique({
-      where: { date },
-    });
-    if (existing) {
-      throw new BadRequestException(
-        'A consult slot already exists for this date',
-      );
-    }
-
-    return this.prisma.consultSlot.create({
-      data: { date, maxCount: dto.maxCount ?? 3 },
-    });
+    return { created, skipped };
   }
 
   async listConsultSlots() {
