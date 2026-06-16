@@ -25,7 +25,8 @@ export class AdminAnalyticsController {
   @ApiOperation({
     summary: 'Get analytics overview for a date range',
     description:
-      'Returns total bookings, breakdown by type and status, revenue metrics, and other summary statistics for the given date range.',
+      'Returns total bookings and breakdown by type and status for the given ' +
+      'date range. (Revenue lives at GET /admin/analytics/revenue.)',
   })
   @ApiResponse({ status: 200, description: 'Analytics overview returned.' })
   overview(@Query() q: AnalyticsRangeQueryDto) {
@@ -63,5 +64,30 @@ export class AdminAnalyticsController {
   @ApiResponse({ status: 200, description: 'UTM breakdown returned.' })
   utm(@Query() q: AnalyticsUtmQueryDto) {
     return this.analytics.getUtm(q);
+  }
+
+  @Get('revenue')
+  @ApiOperation({
+    summary: 'Revenue totals for a date range',
+    description:
+      'Sums PAID payments (integer cents) over the range: total gross/net/VAT, ' +
+      'a breakdown by source, and the net/VAT split grouped by VAT rate. ' +
+      'Refund-aware (PAID only); legacy guest Float totals are never included.',
+  })
+  @ApiResponse({ status: 200, description: 'Revenue totals returned.' })
+  revenue(@Query() q: AnalyticsRangeQueryDto) {
+    return this.analytics.getRevenueOverview(q);
+  }
+
+  @Get('revenue/timeseries')
+  @ApiOperation({
+    summary: 'Revenue timeseries for a date range',
+    description:
+      'Pre-bucketed revenue (day/week/month) over PAID payments: gross/net/VAT ' +
+      'per bucket plus a per-source breakdown per bucket.',
+  })
+  @ApiResponse({ status: 200, description: 'Revenue timeseries returned.' })
+  revenueTimeseries(@Query() q: AnalyticsTimeseriesQueryDto) {
+    return this.analytics.getRevenueTimeseries(q);
   }
 }

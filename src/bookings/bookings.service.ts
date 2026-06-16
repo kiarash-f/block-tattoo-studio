@@ -15,6 +15,7 @@ import {
   UploadKind,
 } from '@prisma/client';
 import { MediaService } from '../media/media.service';
+import { PaymentsService } from '../payments/payments.service';
 import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake.dto';
 import { getUtcRangeForZonedDate, getUtcRangeForPeriod, Period } from '../common/time/zoned-date-range';
 
@@ -36,6 +37,7 @@ export class BookingsService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly media: MediaService,
+    private readonly payments: PaymentsService,
   ) {}
 
   async list(params: {
@@ -86,7 +88,7 @@ export class BookingsService {
   }
 
   async detail(id: string) {
-    return this.prisma.bookingRequest.findUniqueOrThrow({
+    const booking = await this.prisma.bookingRequest.findUniqueOrThrow({
       where: { id },
       include: {
         client: true,
@@ -104,8 +106,36 @@ export class BookingsService {
         reviewedByAdmin: {
           select: { id: true, email: true, displayName: true },
         },
+        // payment rows for this booking (list for display)
+        payments: {
+          orderBy: { paidAt: 'desc' },
+          select: {
+            id: true,
+            grossCents: true,
+            currency: true,
+            method: true,
+            source: true,
+            status: true,
+            paidAt: true,
+            note: true,
+          },
+        },
       },
     });
+
+    // Cost + payment summary — computed fresh, never stored.
+    const paidCents = await this.payments.sumPaidCentsForBooking(id);
+    const balance = this.payments.computeBalance(
+      booking.agreedPriceCents,
+      paidCents,
+    );
+
+    return {
+      ...booking,
+      paidCents: balance.paidCents,
+      remainingCents: balance.remainingCents,
+      fullyPaid: balance.fullyPaid,
+    };
   }
 
   async updateStatus(
@@ -223,6 +253,7 @@ export class BookingsService {
       stationId?: string;
       durationNote?: string;
       notes?: string;
+      agreedPriceCents?: number;
     },
   ) {
     const booking = await this.prisma.bookingRequest.findUniqueOrThrow({
@@ -262,7 +293,12 @@ export class BookingsService {
 
       await tx.bookingRequest.update({
         where: { id: bookingRequestId },
-        data: { status: BookingStatus.TATTOO_SCHEDULED },
+        data: {
+          status: BookingStatus.TATTOO_SCHEDULED,
+          ...(data.agreedPriceCents !== undefined
+            ? { agreedPriceCents: data.agreedPriceCents }
+            : {}),
+        },
       });
 
       return s;
@@ -301,6 +337,7 @@ export class BookingsService {
       placement?: string;
       sizeDescription?: string;
       styleNotes?: string;
+      agreedPriceCents?: number;
     },
     files: Express.Multer.File[],
   ) {
@@ -358,6 +395,9 @@ export class BookingsService {
           reviewedAt: new Date(),
           reviewedByAdminId: adminId,
           approvedAt: new Date(),
+          ...(data.agreedPriceCents !== undefined
+            ? { agreedPriceCents: data.agreedPriceCents }
+            : {}),
         },
       });
 

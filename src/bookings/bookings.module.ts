@@ -6,11 +6,17 @@ import { AdminAppointmentsController } from './admin-appointments.controller';
 import { AdminAnalyticsModule } from './admin-analytics/admin-analytics.module';
 import { AdminBookingsModule } from './admin/admin-bookings.module';
 import { MediaModule } from '../media/media.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   controllers: [BookingsController, AdminAppointmentsController],
   providers: [BookingsService, PrismaService],
   exports: [BookingsService],
-  imports: [AdminAnalyticsModule, AdminBookingsModule, MediaModule],
+  imports: [
+    AdminAnalyticsModule,
+    AdminBookingsModule,
+    MediaModule,
+    PaymentsModule,
+  ],
 })
 export class BookingsModule {}

@@ -1,0 +1,452 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  PaymentMethod,
+  PaymentSource,
+  PaymentStatus,
+  Prisma,
+} from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreatePaymentDto } from './dto/create-payment.dto';
+import { ListPaymentsQueryDto } from './dto/list-payments.query.dto';
+
+/**
+ * Input for recording a realized payment. Used by BOTH paths:
+ *  - LINK  → called by the Stripe webhook once money is received
+ *  - CASH  → called by an admin action
+ * Both converge to a single Payment row (status PAID); the only differences are
+ * `method`, the stripe* fields, and `createdByAdminId`.
+ */
+export interface RecordPaymentInput {
+  source: PaymentSource;
+  method: PaymentMethod;
+
+  /** Gross amount the customer paid, in integer cents. */
+  grossCents: number;
+
+  // ─── Target (exactly one must be set, and must agree with `source`) ──────────
+  bookingRequestId?: string; // source = TATTOO
+  guestArtistBookingId?: string; // source = GUEST_TABLE
+  // voucherSaleId?: string;     // TODO(voucher): source = VOUCHER — seam not yet added
+
+  /**
+   * Applied VAT rate in basis points. For LINK payments the webhook passes the
+   * rate snapshotted at checkout creation (metadata.vat_rate_bps); when omitted
+   * (e.g. cash) the configured default rate is used.
+   */
+  vatRateBps?: number;
+
+  paidAt?: Date; // defaults to now
+  currency?: string; // defaults to 'EUR'
+
+  // Stripe linkage (LINK only)
+  stripeSessionId?: string;
+  stripePaymentIntentId?: string;
+  stripeChargeId?: string;
+
+  createdByAdminId?: string; // CASH only; null/undefined for webhook-created
+  note?: string;
+}
+
+@Injectable()
+export class PaymentsService {
+  private readonly defaultVatRateBps: number;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {
+    this.defaultVatRateBps = this.config.get<number>('VAT_RATE_BPS', 1900);
+  }
+
+  /**
+   * Compute the gross/net/VAT split from a gross amount and a rate in basis
+   * points. net is rounded half-up; VAT absorbs the rounding remainder so the
+   * three values always reconcile (net + vat === gross).
+   */
+  private computeVatSplit(
+    grossCents: number,
+    vatRateBps: number,
+  ): { netCents: number; vatAmountCents: number } {
+    const netCents = Math.round(grossCents / (1 + vatRateBps / 10_000));
+    const vatAmountCents = grossCents - netCents;
+    return { netCents, vatAmountCents };
+  }
+
+  /**
+   * Enforce, at app level, the same invariant as the DB CHECK constraint
+   * (Payment_target_source_chk): exactly one target FK is set and it agrees
+   * with `source`. VOUCHER currently has no FK column, so VOUCHER payments are
+   * rejected until the voucherSaleId seam lands.
+   */
+  private assertTargetMatchesSource(input: {
+    source: PaymentSource;
+    bookingRequestId?: string;
+    guestArtistBookingId?: string;
+  }): void {
+    const { source, bookingRequestId, guestArtistBookingId } = input;
+
+    switch (source) {
+      case PaymentSource.TATTOO:
+        if (!bookingRequestId)
+          throw new BadRequestException(
+            'TATTOO payment requires bookingRequestId',
+          );
+        if (guestArtistBookingId)
+          throw new BadRequestException(
+            'TATTOO payment must not set guestArtistBookingId',
+          );
+        break;
+
+      case PaymentSource.GUEST_TABLE:
+        if (!guestArtistBookingId)
+          throw new BadRequestException(
+            'GUEST_TABLE payment requires guestArtistBookingId',
+          );
+        if (bookingRequestId)
+          throw new BadRequestException(
+            'GUEST_TABLE payment must not set bookingRequestId',
+          );
+        break;
+
+      case PaymentSource.VOUCHER:
+        // Seam not implemented yet — no voucherSaleId column exists.
+        throw new BadRequestException(
+          'VOUCHER payments are not supported yet (voucherSaleId seam not implemented)',
+        );
+
+      default:
+        throw new BadRequestException(`Unknown payment source: ${String(source)}`);
+    }
+  }
+
+  /**
+   * Verify the payment's target row actually exists before writing, so a bad id
+   * surfaces as a clean 404 rather than an FK violation. Assumes the invariant
+   * (source ↔ which FK is set) has already been checked.
+   */
+  private async assertTargetExists(input: {
+    source: PaymentSource;
+    bookingRequestId?: string;
+    guestArtistBookingId?: string;
+  }): Promise<void> {
+    if (input.source === PaymentSource.TATTOO) {
+      const exists = await this.prisma.bookingRequest.findUnique({
+        where: { id: input.bookingRequestId },
+        select: { id: true },
+      });
+      if (!exists)
+        throw new NotFoundException(
+          `BookingRequest ${input.bookingRequestId} not found`,
+        );
+    } else if (input.source === PaymentSource.GUEST_TABLE) {
+      const exists = await this.prisma.guestArtistBooking.findUnique({
+        where: { id: input.guestArtistBookingId },
+        select: { id: true },
+      });
+      if (!exists)
+        throw new NotFoundException(
+          `GuestArtistBooking ${input.guestArtistBookingId} not found`,
+        );
+    }
+    // VOUCHER is rejected earlier by assertTargetMatchesSource.
+  }
+
+  /**
+   * Admin-initiated cash payment. Fixes method = CASH, status = PAID (default),
+   * stamps createdByAdminId, and validates both the invariant and that the
+   * target exists before delegating to recordPayment.
+   */
+  async createCashPayment(dto: CreatePaymentDto, adminId: string) {
+    const target = {
+      source: dto.source,
+      bookingRequestId: dto.bookingRequestId,
+      guestArtistBookingId: dto.guestArtistBookingId,
+    };
+
+    this.assertTargetMatchesSource(target);
+    await this.assertTargetExists(target);
+
+    const payment = await this.recordPayment({
+      source: dto.source,
+      method: PaymentMethod.CASH,
+      grossCents: dto.grossCents,
+      bookingRequestId: dto.bookingRequestId,
+      guestArtistBookingId: dto.guestArtistBookingId,
+      paidAt: dto.paidAt ? new Date(dto.paidAt) : undefined,
+      note: dto.note,
+      createdByAdminId: adminId,
+    });
+
+    // Soft over-payment signal for priced tattoo bookings (never blocks).
+    const overPayment = dto.bookingRequestId
+      ? await this.checkOverPayment(dto.bookingRequestId)
+      : { overPaymentWarning: false, overageCents: 0 };
+
+    return { payment, ...overPayment };
+  }
+
+  /**
+   * Create a single Payment row (status PAID). Shared by the cash and link paths.
+   * Idempotency on stripeSessionId is enforced by the unique index and guarded
+   * upstream by the webhook; this method only records the payment.
+   *
+   * Pass `tx` to enlist this write in a caller's interactive transaction (e.g.
+   * the webhook flips the booking + records the payment atomically).
+   */
+  async recordPayment(input: RecordPaymentInput, tx?: Prisma.TransactionClient) {
+    if (!Number.isInteger(input.grossCents) || input.grossCents <= 0) {
+      throw new BadRequestException(
+        'grossCents must be a positive integer (cents)',
+      );
+    }
+
+    this.assertTargetMatchesSource(input);
+
+    const vatRateBps = input.vatRateBps ?? this.defaultVatRateBps;
+    if (!Number.isInteger(vatRateBps) || vatRateBps < 0) {
+      throw new BadRequestException('vatRateBps must be a non-negative integer');
+    }
+
+    const { netCents, vatAmountCents } = this.computeVatSplit(
+      input.grossCents,
+      vatRateBps,
+    );
+
+    const db = tx ?? this.prisma;
+
+    return db.payment.create({
+      data: {
+        source: input.source,
+        method: input.method,
+        // status defaults to PAID
+        currency: input.currency ?? 'EUR',
+        grossCents: input.grossCents,
+        netCents,
+        vatAmountCents,
+        vatRateBps,
+        paidAt: input.paidAt ?? new Date(),
+        bookingRequestId: input.bookingRequestId ?? null,
+        guestArtistBookingId: input.guestArtistBookingId ?? null,
+        stripeSessionId: input.stripeSessionId ?? null,
+        stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+        stripeChargeId: input.stripeChargeId ?? null,
+        createdByAdminId: input.createdByAdminId ?? null,
+        note: input.note ?? null,
+      },
+    });
+  }
+
+  // ─── Balance (computed fresh, never stored) ─────────────────────────────────
+
+  /**
+   * Money actually kept for a booking: SUM(grossCents) of PAID rows minus the
+   * SUM(refundedAmountCents) recorded on those same rows (partial refunds).
+   * Fully-refunded payments are status REFUNDED and excluded entirely.
+   * Single indexed aggregate on (bookingRequestId, status).
+   */
+  async sumPaidCentsForBooking(
+    bookingRequestId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const db = tx ?? this.prisma;
+    const agg = await db.payment.aggregate({
+      where: { bookingRequestId, status: PaymentStatus.PAID },
+      _sum: { grossCents: true, refundedAmountCents: true },
+    });
+    const gross = agg._sum.grossCents ?? 0;
+    const refunded = agg._sum.refundedAmountCents ?? 0;
+    return gross - refunded;
+  }
+
+  /**
+   * Pure combiner: derive remaining + fullyPaid from a booking's agreed price
+   * (null = not priced yet) and its paid total. `remainingCents` is null when
+   * unpriced. `fullyPaid` is true once a priced booking is paid in full
+   * (remaining <= 0; <= rather than === so an over-payment still reads as paid).
+   */
+  computeBalance(
+    agreedPriceCents: number | null,
+    paidCents: number,
+  ): {
+    agreedPriceCents: number | null;
+    paidCents: number;
+    remainingCents: number | null;
+    fullyPaid: boolean;
+  } {
+    const remainingCents =
+      agreedPriceCents === null ? null : agreedPriceCents - paidCents;
+    const fullyPaid = remainingCents !== null && remainingCents <= 0;
+    return { agreedPriceCents, paidCents, remainingCents, fullyPaid };
+  }
+
+  /** Load a booking's agreed price and compute its full balance summary. */
+  async getBookingBalance(bookingRequestId: string) {
+    const booking = await this.prisma.bookingRequest.findUnique({
+      where: { id: bookingRequestId },
+      select: { agreedPriceCents: true },
+    });
+    if (!booking) {
+      throw new NotFoundException(
+        `BookingRequest ${bookingRequestId} not found`,
+      );
+    }
+    const paidCents = await this.sumPaidCentsForBooking(bookingRequestId);
+    return this.computeBalance(booking.agreedPriceCents, paidCents);
+  }
+
+  /**
+   * Soft over-payment check for a tattoo booking, run AFTER a payment is
+   * recorded (so the running total includes it). Returns a warning + overage
+   * when a priced booking's paid total exceeds its agreed price. Never blocks —
+   * over-payment is allowed by design. Reusable by the cash endpoint and the
+   * future TATTOO link path.
+   */
+  async checkOverPayment(
+    bookingRequestId: string,
+  ): Promise<{ overPaymentWarning: boolean; overageCents: number }> {
+    const balance = await this.getBookingBalance(bookingRequestId);
+    // remainingCents is null when unpriced (can't over-pay an unpriced booking).
+    if (balance.remainingCents !== null && balance.remainingCents < 0) {
+      return { overPaymentWarning: true, overageCents: -balance.remainingCents };
+    }
+    return { overPaymentWarning: false, overageCents: 0 };
+  }
+
+  // ─── Admin payments list ────────────────────────────────────────────────────
+
+  /**
+   * Paginated, filtered list of payments (admin). Matches the project's list
+   * convention: $transaction([count, findMany]) → { total, page, limit, items }.
+   * `from`/`to` are inclusive whole-day bounds in UTC ([from 00:00, to+1 00:00)).
+   * Includes both target relations + createdByAdmin so callers can resolve
+   * per-payment context (see normalize step).
+   */
+  async list(query: ListPaymentsQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.PaymentWhereInput = {};
+    if (query.source) where.source = query.source;
+    if (query.method) where.method = query.method;
+    if (query.status) where.status = query.status;
+
+    if (query.from || query.to) {
+      const paidAt: Prisma.DateTimeFilter = {};
+      if (query.from) {
+        const f = new Date(query.from);
+        f.setUTCHours(0, 0, 0, 0);
+        paidAt.gte = f;
+      }
+      if (query.to) {
+        const t = new Date(query.to);
+        t.setUTCHours(0, 0, 0, 0);
+        t.setUTCDate(t.getUTCDate() + 1); // exclusive end → `to` day fully included
+        paidAt.lt = t;
+      }
+      where.paidAt = paidAt;
+    }
+
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.payment.count({ where }),
+      this.prisma.payment.findMany({
+        where,
+        orderBy: { paidAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          bookingRequest: {
+            select: {
+              id: true,
+              client: {
+                select: { firstName: true, lastName: true, email: true },
+              },
+            },
+          },
+          guestArtistBooking: {
+            select: { id: true, name: true, email: true },
+          },
+          createdByAdmin: {
+            select: { id: true, email: true, displayName: true },
+          },
+        },
+      }),
+    ]);
+
+    const items = rows.map((p) => ({
+      id: p.id,
+      source: p.source,
+      method: p.method,
+      status: p.status,
+      currency: p.currency,
+      grossCents: p.grossCents,
+      netCents: p.netCents,
+      vatAmountCents: p.vatAmountCents,
+      vatRateBps: p.vatRateBps,
+      paidAt: p.paidAt,
+      note: p.note,
+      refundedAt: p.refundedAt,
+      refundedAmountCents: p.refundedAmountCents,
+      createdByAdmin: p.createdByAdmin,
+      // Source-agnostic context resolved server-side; the client never switches
+      // on `source` to read who/what a payment was for.
+      context: this.resolvePaymentContext(p),
+    }));
+
+    return { total, page, limit, items };
+  }
+
+  /**
+   * Resolve a consistent { source, customerName, customerEmail, reference }
+   * for a payment by switching on its source:
+   *  - TATTOO      → the booking's client
+   *  - GUEST_TABLE → the inline guest-artist-booking fields
+   *  - VOUCHER     → placeholder (voucher sales don't exist yet)
+   * `reference` is the target record id (paired with `source` for deep-linking).
+   */
+  private resolvePaymentContext(p: {
+    source: PaymentSource;
+    bookingRequest: {
+      id: string;
+      client: { firstName: string; lastName: string; email: string | null };
+    } | null;
+    guestArtistBooking: { id: string; name: string; email: string } | null;
+  }): {
+    source: PaymentSource;
+    customerName: string | null;
+    customerEmail: string | null;
+    reference: string | null;
+  } {
+    let customerName: string | null = null;
+    let customerEmail: string | null = null;
+    let reference: string | null = null;
+
+    switch (p.source) {
+      case PaymentSource.TATTOO:
+        if (p.bookingRequest) {
+          customerName =
+            `${p.bookingRequest.client.firstName} ${p.bookingRequest.client.lastName}`.trim();
+          customerEmail = p.bookingRequest.client.email;
+          reference = p.bookingRequest.id;
+        }
+        break;
+      case PaymentSource.GUEST_TABLE:
+        if (p.guestArtistBooking) {
+          customerName = p.guestArtistBooking.name;
+          customerEmail = p.guestArtistBooking.email;
+          reference = p.guestArtistBooking.id;
+        }
+        break;
+      case PaymentSource.VOUCHER:
+        // Placeholder until voucher sales exist (no FK / relation yet).
+        break;
+    }
+
+    return { source: p.source, customerName, customerEmail, reference };
+  }
+}

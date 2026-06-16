@@ -29,6 +29,7 @@ import { EmailModule } from './email/email.module';
 import { ChatModule } from './chat/chat.module';
 import { StationConfigModule } from './station-config/station-config.module';
 import { StripeModule } from './stripe/stripe.module';
+import { PaymentsModule } from './payments/payments.module';
 import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-bookings.module';
 import { StripeWebhookModule } from './stripe-webhook/stripe-webhook.module';
 import { TranslationModule } from './translation/translation.module';
@@ -92,6 +93,7 @@ import { CampaignsModule } from './campaigns/campaigns.module';
     ChatModule,
     StationConfigModule,
     StripeModule,
+    PaymentsModule,
     GuestArtistBookingsModule,
     StripeWebhookModule,
     TranslationModule,

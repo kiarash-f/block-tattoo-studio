@@ -110,6 +110,23 @@ enum GuestBookingStatus {
   EXPIRED
 }
 
+enum PaymentSource {
+  TATTOO
+  VOUCHER
+  GUEST_TABLE
+}
+
+enum PaymentMethod {
+  CASH
+  LINK
+}
+
+enum PaymentStatus {
+  PAID
+  REFUNDED
+  CANCELLED
+}
+
 //
 // Models
 //
@@ -133,6 +150,9 @@ model AdminUser {
 
   // Articles
   articles Article[]
+
+  // Payments created manually (cash) by this admin
+  payments Payment[]
 
   @@index([isActive])
 }
@@ -200,6 +220,11 @@ model BookingRequest {
   assignments BookingAssignment[]
   bookingType BookingType         @default(APPOINTMENT)
 
+  // agreed total price for the tattoo, in integer cents. Set by admin at
+  // scheduling (schedule-tattoo / walk-in). Null = not priced yet (consults,
+  // historical rows). Remaining balance is always computed fresh from payments.
+  agreedPriceCents Int?
+
   // consult slot
   consultDate   DateTime?    @db.Date
   consultSlotId String?
@@ -207,6 +232,9 @@ model BookingRequest {
 
   // tattoo sessions (phase 5)
   tattooSessions TattooSession[]
+
+  // payments (generic payment foundation; target = TATTOO)
+  payments Payment[]
 
   // lifecycle timestamps
   createdAt    DateTime      @default(now())
@@ -517,6 +545,10 @@ model GuestArtistBooking {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
+  // payments (generic payment foundation; target = GUEST_TABLE).
+  // Existing stripeSessionId/stripePaymentUrl/status columns are unchanged.
+  payments Payment[]
+
   @@index([status])
   @@index([startDate, endDate])
   @@index([email])
@@ -545,6 +577,68 @@ model TattooSession {
   @@index([artistId])
   @@index([stationId])
   @@index([scheduledDate])
+}
+
+// ─── Generic Payment Foundation ──────────────────────────────────────────────
+// One row per realized money event. A row exists only when money is received
+// (Stripe webhook for LINK, admin action for CASH). No PENDING state.
+model Payment {
+  id String @id @default(cuid())
+
+  source PaymentSource // analytics dimension; always set, independent of which FK is populated
+  method PaymentMethod // CASH | LINK
+  status PaymentStatus @default(PAID)
+
+  currency String @default("EUR")
+
+  // money — integer cents (never Float)
+  grossCents     Int // what the customer pays/paid
+  netCents       Int // snapshot, frozen at creation
+  vatAmountCents Int // snapshot; invariant: netCents + vatAmountCents == grossCents
+  vatRateBps     Int // applied VAT rate in basis points (1900 = 19%), snapshotted
+
+  paidAt DateTime // money-received timestamp (analytics time axis)
+
+  // ─── Polymorphic target: separate nullable FKs + source discriminator ───────
+  bookingRequestId String?
+  bookingRequest   BookingRequest? @relation(fields: [bookingRequestId], references: [id], onDelete: Restrict)
+
+  guestArtistBookingId String?
+  guestArtistBooking   GuestArtistBooking? @relation(fields: [guestArtistBookingId], references: [id], onDelete: Restrict)
+
+  // TODO(voucher): add `voucherSaleId String?` + relation when the VoucherSale
+  // model lands. PaymentSource.VOUCHER already exists, so no enum migration is
+  // needed at that point — only an additive column + FK.
+
+  // ─── Stripe linkage (null for cash) ─────────────────────────────────────────
+  stripeSessionId       String? @unique // idempotency key for link payments
+  stripePaymentIntentId String? // refund matching (charge.refunded)
+  stripeChargeId        String? // alternate refund-match key
+
+  // ─── Refunds (partial supported by subtracting refundedAmountCents) ─────────
+  // LOCKED REQUIREMENT (refund feature, not yet built): over-refund must be
+  // HARD-BLOCKED — a refund may never exceed the booking's paid total
+  // (SUM(grossCents) − SUM(refundedAmountCents) over PAID rows). Enforce this as
+  // the FIRST guard in the future refund flow. Intentionally not implemented
+  // here (no refund path exists yet; a guard with nothing to guard is dead code).
+  refundedAt          DateTime?
+  refundedAmountCents Int?
+
+  // ─── Audit ──────────────────────────────────────────────────────────────────
+  createdByAdminId String? // null = webhook-created (LINK); set = admin-created (CASH)
+  createdByAdmin   AdminUser? @relation(fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  note             String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, source, paidAt]) // primary: paid revenue by source over range
+  @@index([paidAt])
+  @@index([source, paidAt])
+  @@index([bookingRequestId])
+  @@index([guestArtistBookingId])
+  @@index([refundedAt])
+  @@index([createdByAdminId])
 }
 
 
