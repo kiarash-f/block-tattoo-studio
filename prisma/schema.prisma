@@ -7,8 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
-
 //
 // Enums
 //
@@ -41,7 +39,7 @@ enum BookingLinkStatus {
 
 enum BookingStatus {
   PENDING_CONSULT
-  CONSULT_APPROVED 
+  CONSULT_APPROVED
   CONSULT_NO_SHOW
   TATTOO_SCHEDULED
   COMPLETED
@@ -127,6 +125,33 @@ enum PaymentStatus {
   CANCELLED
 }
 
+enum VoucherType {
+  FULL_DAY
+  HALF_DAY
+  CUSTOM
+}
+
+// German VAT treatment (UStG §3 Abs. 13–15). SINGLE_PURPOSE: place of supply +
+// VAT rate are known at issuance → VAT recognized at SALE (the only path
+// implemented now). MULTI_PURPOSE: VAT recognized at REDEMPTION. Stored from day
+// one so the multi-purpose path can be added later without a backfill.
+enum VoucherTreatment {
+  SINGLE_PURPOSE
+  MULTI_PURPOSE
+}
+
+enum VoucherStatus {
+  PENDING_PAYMENT // created, awaiting Stripe confirmation — NOT yet redeemable
+  VALID //           paid & active; redeemable
+  REDEEMED //        used once (no partial redemption)
+  CANCELLED
+}
+
+enum VoucherDelivery {
+  EMAIL //          emailed only (always sent)
+  EMAIL_AND_POST // emailed + physically mailed by admin (shipping fields set)
+}
+
 //
 // Models
 //
@@ -153,6 +178,9 @@ model AdminUser {
 
   // Payments created manually (cash) by this admin
   payments Payment[]
+
+  // Vouchers redeemed (scanned) by this admin
+  redeemedVouchers VoucherSale[]
 
   @@index([isActive])
 }
@@ -235,6 +263,10 @@ model BookingRequest {
 
   // payments (generic payment foundation; target = TATTOO)
   payments Payment[]
+
+  // Reserved (NOT wired): vouchers redeemed against this booking. Inverse of the
+  // future redemption-to-booking attribution FK on VoucherSale. Nothing sets it.
+  redeemedVouchers VoucherSale[]
 
   // lifecycle timestamps
   createdAt    DateTime      @default(now())
@@ -385,7 +417,7 @@ model Artist {
   studioId    String?
   displayName String
   handle      String?      @unique
-  slug        String?      @unique  // new (nullable for safe migration)
+  slug        String?      @unique // new (nullable for safe migration)
   email       String?      @unique
   phone       String?
   status      ArtistStatus @default(ACTIVE)
@@ -394,9 +426,9 @@ model Artist {
   bioDe     String?
   bioEn     String?
   avatarUrl String?
-  coverUrl  String?        // new
+  coverUrl  String? // new
 
-  works     ArtistWork[]   // new relation
+  works ArtistWork[] // new relation
 
   assignments    BookingAssignment[]
   tattooSessions TattooSession[]
@@ -412,17 +444,17 @@ model Artist {
 model ArtistWork {
   id          String        @id @default(cuid())
   title       String
-  titleDe   String?
-  titleEn   String?
+  titleDe     String?
+  titleEn     String?
   coverUrl    String
-  tags        String[]      // hashtags
+  tags        String[] // hashtags
   status      PublishStatus @default(DRAFT)
   publishedAt DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  artistId    String
-  artist      Artist        @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  artistId String
+  artist   Artist @relation(fields: [artistId], references: [id], onDelete: Cascade)
 
   @@index([artistId, createdAt])
   @@index([status, createdAt])
@@ -529,21 +561,21 @@ model StationConfig {
 }
 
 model GuestArtistBooking {
-  id             String             @id @default(cuid())
-  name           String
-  phone          String
-  email          String
-  startDate      DateTime           @db.Date
-  endDate        DateTime           @db.Date
-  numberOfTables Int
-  totalPrice     Float
-  discountApplied Float
-  acknowledgment Boolean
+  id               String             @id @default(cuid())
+  name             String
+  phone            String
+  email            String
+  startDate        DateTime           @db.Date
+  endDate          DateTime           @db.Date
+  numberOfTables   Int
+  totalPrice       Float
+  discountApplied  Float
+  acknowledgment   Boolean
   stripeSessionId  String?
   stripePaymentUrl String?
-  status         GuestBookingStatus @default(PENDING_PAYMENT)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  status           GuestBookingStatus @default(PENDING_PAYMENT)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
   // payments (generic payment foundation; target = GUEST_TABLE).
   // Existing stripeSessionId/stripePaymentUrl/status columns are unchanged.
@@ -606,9 +638,8 @@ model Payment {
   guestArtistBookingId String?
   guestArtistBooking   GuestArtistBooking? @relation(fields: [guestArtistBookingId], references: [id], onDelete: Restrict)
 
-  // TODO(voucher): add `voucherSaleId String?` + relation when the VoucherSale
-  // model lands. PaymentSource.VOUCHER already exists, so no enum migration is
-  // needed at that point — only an additive column + FK.
+  voucherSaleId String?
+  voucherSale   VoucherSale? @relation(fields: [voucherSaleId], references: [id], onDelete: Restrict)
 
   // ─── Stripe linkage (null for cash) ─────────────────────────────────────────
   stripeSessionId       String? @unique // idempotency key for link payments
@@ -637,8 +668,108 @@ model Payment {
   @@index([source, paidAt])
   @@index([bookingRequestId])
   @@index([guestArtistBookingId])
+  @@index([voucherSaleId])
   @@index([refundedAt])
   @@index([createdByAdminId])
 }
 
+// ─── Gutschein (Gift Voucher) Shop ───────────────────────────────────────────
+// VoucherProduct = the admin-configured template/batch (type + De/En name +
+// price + discount). VoucherSale = an individual issued voucher (unique code,
+// status, buyer, delivery, frozen VAT split, Payment link). All money is integer
+// cents. A redeemed voucher records NO Payment — money is taken once, at sale.
 
+model VoucherProduct {
+  id   String      @id @default(cuid())
+  type VoucherType
+
+  // De/En paired naming (base + auto-translated variants), matching Article.
+  name   String
+  nameDe String?
+  nameEn String?
+
+  // Gross price in integer cents. Null for CUSTOM (buyer enters the amount at
+  // purchase, validated ≥ €100). Required for FULL_DAY/HALF_DAY (service layer).
+  priceCents Int?
+
+  // Whole-percent discount applied to FULL_DAY/HALF_DAY only (rejected on CUSTOM
+  // at the service layer). Discounted gross is rounded half-up to whole cents,
+  // and the VAT split derives from that final integer gross.
+  discountPercent Int @default(0)
+
+  // VAT classification for this product, snapshotted onto each sale at purchase.
+  voucherTreatment VoucherTreatment @default(SINGLE_PURPOSE)
+
+  // Admin soft-toggle: inactive products stay sellable history (existing sales
+  // keep their FK) but are hidden from the public shop. Deactivate instead of
+  // delete (which onDelete: Restrict would block once sales exist anyway).
+  isActive Boolean @default(true)
+
+  sales VoucherSale[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([isActive])
+}
+
+model VoucherSale {
+  id String @id @default(cuid())
+
+  // Unique, raw-stored code (printed / encoded into the QR — NEVER hashed, unlike
+  // BookingLinkToken; the buyer must be able to read and present it).
+  code String @unique
+
+  productId String
+  product   VoucherProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  status           VoucherStatus    @default(PENDING_PAYMENT)
+  voucherTreatment VoucherTreatment @default(SINGLE_PURPOSE) // snapshot from product
+
+  // ─── Buyer ──────────────────────────────────────────────────────────────────
+  buyerName  String
+  buyerEmail String
+
+  // ─── Delivery ───────────────────────────────────────────────────────────────
+  delivery           VoucherDelivery @default(EMAIL)
+  // POST shipping — set only when delivery = EMAIL_AND_POST. Admin mails by hand;
+  // shippedAt stamps when that physical send happened.
+  shippingName       String?
+  shippingLine1      String?
+  shippingLine2      String?
+  shippingPostalCode String?
+  shippingCity       String?
+  shippingCountry    String?
+  shippedAt          DateTime?
+
+  // ─── VAT split — frozen at sale, self-contained for invoicing ───────────────
+  // Derived from the discounted gross via the shared computeVatSplit.
+  // invariant: netCents + vatAmountCents == grossCents
+  grossCents     Int
+  netCents       Int
+  vatAmountCents Int
+  vatRateBps     Int
+
+  // ─── Redemption: standalone status flip + audit; no partial redemption ──────
+  redeemedAt        DateTime?
+  redeemedByAdminId String?
+  redeemedByAdmin   AdminUser? @relation(fields: [redeemedByAdminId], references: [id], onDelete: SetNull)
+
+  // Reserved FK slot for future redemption-to-booking attribution. NOT wired —
+  // nothing populates it yet (vouchers redeem standalone for now).
+  redeemedAgainstBookingId String?
+  redeemedAgainstBooking   BookingRequest? @relation(fields: [redeemedAgainstBookingId], references: [id], onDelete: SetNull)
+
+  // Payment(s) for this sale (generic payment foundation; source = VOUCHER).
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([productId])
+  @@index([buyerEmail])
+  @@index([redeemedByAdminId])
+  @@index([redeemedAgainstBookingId])
+}

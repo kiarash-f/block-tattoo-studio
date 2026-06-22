@@ -31,7 +31,7 @@ export interface RecordPaymentInput {
   // ─── Target (exactly one must be set, and must agree with `source`) ──────────
   bookingRequestId?: string; // source = TATTOO
   guestArtistBookingId?: string; // source = GUEST_TABLE
-  // voucherSaleId?: string;     // TODO(voucher): source = VOUCHER — seam not yet added
+  voucherSaleId?: string; // source = VOUCHER
 
   /**
    * Applied VAT rate in basis points. For LINK payments the webhook passes the
@@ -66,9 +66,10 @@ export class PaymentsService {
   /**
    * Compute the gross/net/VAT split from a gross amount and a rate in basis
    * points. net is rounded half-up; VAT absorbs the rounding remainder so the
-   * three values always reconcile (net + vat === gross).
+   * three values always reconcile (net + vat === gross). Public so other money
+   * flows (e.g. voucher sales) snapshot their split from the same source.
    */
-  private computeVatSplit(
+  public computeVatSplit(
     grossCents: number,
     vatRateBps: number,
   ): { netCents: number; vatAmountCents: number } {
@@ -87,8 +88,10 @@ export class PaymentsService {
     source: PaymentSource;
     bookingRequestId?: string;
     guestArtistBookingId?: string;
+    voucherSaleId?: string;
   }): void {
-    const { source, bookingRequestId, guestArtistBookingId } = input;
+    const { source, bookingRequestId, guestArtistBookingId, voucherSaleId } =
+      input;
 
     switch (source) {
       case PaymentSource.TATTOO:
@@ -96,9 +99,9 @@ export class PaymentsService {
           throw new BadRequestException(
             'TATTOO payment requires bookingRequestId',
           );
-        if (guestArtistBookingId)
+        if (guestArtistBookingId || voucherSaleId)
           throw new BadRequestException(
-            'TATTOO payment must not set guestArtistBookingId',
+            'TATTOO payment must not set guestArtistBookingId or voucherSaleId',
           );
         break;
 
@@ -107,17 +110,22 @@ export class PaymentsService {
           throw new BadRequestException(
             'GUEST_TABLE payment requires guestArtistBookingId',
           );
-        if (bookingRequestId)
+        if (bookingRequestId || voucherSaleId)
           throw new BadRequestException(
-            'GUEST_TABLE payment must not set bookingRequestId',
+            'GUEST_TABLE payment must not set bookingRequestId or voucherSaleId',
           );
         break;
 
       case PaymentSource.VOUCHER:
-        // Seam not implemented yet — no voucherSaleId column exists.
-        throw new BadRequestException(
-          'VOUCHER payments are not supported yet (voucherSaleId seam not implemented)',
-        );
+        if (!voucherSaleId)
+          throw new BadRequestException(
+            'VOUCHER payment requires voucherSaleId',
+          );
+        if (bookingRequestId || guestArtistBookingId)
+          throw new BadRequestException(
+            'VOUCHER payment must not set bookingRequestId or guestArtistBookingId',
+          );
+        break;
 
       default:
         throw new BadRequestException(`Unknown payment source: ${String(source)}`);
@@ -133,6 +141,7 @@ export class PaymentsService {
     source: PaymentSource;
     bookingRequestId?: string;
     guestArtistBookingId?: string;
+    voucherSaleId?: string;
   }): Promise<void> {
     if (input.source === PaymentSource.TATTOO) {
       const exists = await this.prisma.bookingRequest.findUnique({
@@ -152,8 +161,16 @@ export class PaymentsService {
         throw new NotFoundException(
           `GuestArtistBooking ${input.guestArtistBookingId} not found`,
         );
+    } else if (input.source === PaymentSource.VOUCHER) {
+      const exists = await this.prisma.voucherSale.findUnique({
+        where: { id: input.voucherSaleId },
+        select: { id: true },
+      });
+      if (!exists)
+        throw new NotFoundException(
+          `VoucherSale ${input.voucherSaleId} not found`,
+        );
     }
-    // VOUCHER is rejected earlier by assertTargetMatchesSource.
   }
 
   /**
@@ -232,6 +249,7 @@ export class PaymentsService {
         paidAt: input.paidAt ?? new Date(),
         bookingRequestId: input.bookingRequestId ?? null,
         guestArtistBookingId: input.guestArtistBookingId ?? null,
+        voucherSaleId: input.voucherSaleId ?? null,
         stripeSessionId: input.stripeSessionId ?? null,
         stripePaymentIntentId: input.stripePaymentIntentId ?? null,
         stripeChargeId: input.stripeChargeId ?? null,
@@ -371,6 +389,9 @@ export class PaymentsService {
           guestArtistBooking: {
             select: { id: true, name: true, email: true },
           },
+          voucherSale: {
+            select: { id: true, code: true, buyerName: true, buyerEmail: true },
+          },
           createdByAdmin: {
             select: { id: true, email: true, displayName: true },
           },
@@ -416,6 +437,12 @@ export class PaymentsService {
       client: { firstName: string; lastName: string; email: string | null };
     } | null;
     guestArtistBooking: { id: string; name: string; email: string } | null;
+    voucherSale: {
+      id: string;
+      code: string;
+      buyerName: string;
+      buyerEmail: string;
+    } | null;
   }): {
     source: PaymentSource;
     customerName: string | null;
@@ -443,7 +470,11 @@ export class PaymentsService {
         }
         break;
       case PaymentSource.VOUCHER:
-        // Placeholder until voucher sales exist (no FK / relation yet).
+        if (p.voucherSale) {
+          customerName = p.voucherSale.buyerName;
+          customerEmail = p.voucherSale.buyerEmail;
+          reference = p.voucherSale.id;
+        }
         break;
     }
 

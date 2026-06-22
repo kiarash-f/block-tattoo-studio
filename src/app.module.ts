@@ -33,6 +33,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { GuestArtistBookingsModule } from './guest-artist-bookings/guest-artist-bookings.module';
 import { StripeWebhookModule } from './stripe-webhook/stripe-webhook.module';
 import { TranslationModule } from './translation/translation.module';
+import { VouchersModule } from './vouchers/vouchers.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { CampaignsModule } from './campaigns/campaigns.module';
     GuestArtistBookingsModule,
     StripeWebhookModule,
     TranslationModule,
+    VouchersModule,
     CampaignsModule,
   ],
   controllers: [AppController],

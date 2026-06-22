@@ -6,6 +6,7 @@ import {
   PaymentMethod,
   PaymentSource,
   Prisma,
+  VoucherStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -131,17 +132,13 @@ export class StripeWebhookService {
         break;
 
       case PaymentSource.VOUCHER:
-        // Stub: voucher sales don't exist yet. recordPayment will reject this
-        // (no voucherSaleId seam), so this branch is effectively unreachable
-        // until the voucher work lands.
-        await this.recordLinkPayment({
-          source: PaymentSource.VOUCHER,
+        await this.handleVoucher(
           targetId,
+          session.id,
           amountCents,
-          sessionId: session.id,
           paymentIntentId,
           vatRateBps,
-        });
+        );
         break;
 
       default:
@@ -268,6 +265,108 @@ export class StripeWebhookService {
       );
   }
 
+  // ─── VOUCHER: activate the sale + record Payment, then email the code ────────
+
+  private async handleVoucher(
+    voucherSaleId: string,
+    sessionId: string,
+    amountCents: number,
+    paymentIntentId: string | undefined,
+    vatRateBps: number | undefined,
+  ): Promise<void> {
+    // ── Load sale — idempotency guard ─────────────────────────────────────────
+    const sale = await this.prisma.voucherSale.findUnique({
+      where: { id: voucherSaleId },
+      include: { product: { select: { name: true } } },
+    });
+
+    if (!sale) {
+      this.logger.warn(
+        `Stripe webhook: voucher sale ${voucherSaleId} not found — skipping`,
+      );
+      return;
+    }
+
+    if (sale.status !== VoucherStatus.PENDING_PAYMENT) {
+      this.logger.log(
+        `Stripe webhook: voucher sale ${voucherSaleId} already in status ${sale.status} — skipping`,
+      );
+      return;
+    }
+
+    // ── Validate the charged amount against the frozen gross ──────────────────
+    const expectedCents = sale.grossCents;
+
+    if (amountCents !== expectedCents) {
+      // Divergence from the guest flow: a voucher is STORED VALUE. We must NOT
+      // activate (or email) a voucher whose paid amount doesn't match its face
+      // value — that would issue redeemable value we weren't paid for. Leave the
+      // sale PENDING_PAYMENT, write no Payment, and report for manual handling.
+      Sentry.captureException(
+        new Error(
+          'Stripe webhook: voucher checkout amount does not match face value — sale NOT activated',
+        ),
+        {
+          level: 'error',
+          tags: { area: 'payments', payment_source: PaymentSource.VOUCHER },
+          extra: {
+            sessionId,
+            expectedCents,
+            actualCents: amountCents,
+            target: { type: PaymentSource.VOUCHER, voucherSaleId },
+            outcome: 'sale left PENDING_PAYMENT; Payment NOT recorded; no email',
+          },
+        },
+      );
+      this.logger.error(
+        `Stripe webhook: amount mismatch for voucher ${voucherSaleId} ` +
+          `(stripe=${amountCents}, expected=${expectedCents}) — sale NOT activated`,
+      );
+      return;
+    }
+
+    // ── Activate sale + record Payment atomically ─────────────────────────────
+    // A DB failure can't leave a VALID voucher with no Payment row.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.voucherSale.update({
+        where: { id: voucherSaleId },
+        data: { status: VoucherStatus.VALID },
+      });
+      await this.recordLinkPayment(
+        {
+          source: PaymentSource.VOUCHER,
+          targetId: voucherSaleId,
+          amountCents,
+          sessionId,
+          paymentIntentId,
+          vatRateBps,
+        },
+        tx,
+      );
+    });
+
+    this.logger.log(`Voucher sale ${voucherSaleId} activated via Stripe webhook`);
+
+    // ── Send the voucher email ────────────────────────────────────────────────
+    // Fire-and-forget AFTER commit — a mail failure must never roll back a real
+    // payment or the activation.
+    this.email
+      .sendVoucherPurchase({
+        to: sale.buyerEmail,
+        buyerName: sale.buyerName,
+        productName: sale.product.name,
+        code: sale.code,
+        grossCents: sale.grossCents,
+        delivery: sale.delivery,
+      })
+      .catch((err: unknown) =>
+        this.logger.error(
+          `Failed to send voucher email for sale ${voucherSaleId}`,
+          err,
+        ),
+      );
+  }
+
   // ─── Shared LINK payment writer (maps source → the correct target FK) ────────
 
   private async recordLinkPayment(
@@ -296,6 +395,8 @@ export class StripeWebhookService {
           source === PaymentSource.TATTOO ? targetId : undefined,
         guestArtistBookingId:
           source === PaymentSource.GUEST_TABLE ? targetId : undefined,
+        voucherSaleId:
+          source === PaymentSource.VOUCHER ? targetId : undefined,
       },
       tx,
     );

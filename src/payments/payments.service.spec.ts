@@ -177,13 +177,27 @@ describe('PaymentsService — exactly-one-target invariant', () => {
     expect(prisma.payment.create).not.toHaveBeenCalled();
   });
 
-  it('rejects VOUCHER (seam not implemented yet)', async () => {
+  it('rejects VOUCHER with no voucherSaleId', async () => {
     const { service, prisma } = await createService();
     await expect(
       service.recordPayment({
         source: PaymentSource.VOUCHER,
         method: PaymentMethod.CASH,
         grossCents: GROSS,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects VOUCHER with a disagreeing target (VOUCHER + bookingRequestId)', async () => {
+    const { service, prisma } = await createService();
+    await expect(
+      service.recordPayment({
+        source: PaymentSource.VOUCHER,
+        method: PaymentMethod.LINK,
+        grossCents: GROSS,
+        voucherSaleId: 'vs_1',
+        bookingRequestId: 'br_1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.payment.create).not.toHaveBeenCalled();
@@ -217,6 +231,21 @@ describe('PaymentsService — exactly-one-target invariant', () => {
     expect(payment.guestArtistBookingId).toBe('gab_1');
     expect(payment.bookingRequestId).toBeNull();
     expect(payment.source).toBe(PaymentSource.GUEST_TABLE);
+  });
+
+  it('(e) accepts VOUCHER + voucherSaleId', async () => {
+    const { service, prisma } = await createService();
+    const payment = await service.recordPayment({
+      source: PaymentSource.VOUCHER,
+      method: PaymentMethod.LINK,
+      grossCents: GROSS,
+      voucherSaleId: 'vs_1',
+    });
+    expect(prisma.payment.create).toHaveBeenCalledTimes(1);
+    expect(payment.voucherSaleId).toBe('vs_1');
+    expect(payment.bookingRequestId).toBeNull();
+    expect(payment.guestArtistBookingId).toBeNull();
+    expect(payment.source).toBe(PaymentSource.VOUCHER);
   });
 });
 
