@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DateTime } from 'luxon';
+import { PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AnalyticsRangeQueryDto,
@@ -25,6 +26,31 @@ type MinimalRow = {
 };
 
 type UtcRange = { startUtc: Date; endUtc: Date };
+
+type PaymentRevenueRow = {
+  paidAt: Date;
+  source: string;
+  grossCents: number;
+  netCents: number;
+  vatAmountCents: number;
+  vatRateBps: number;
+};
+
+type RevenueTotals = {
+  grossCents: number;
+  netCents: number;
+  vatAmountCents: number;
+  count: number;
+};
+
+type RevenueBucket = {
+  key: string;
+  label: string;
+  startUtc: Date;
+  endUtc: Date;
+  totals: RevenueTotals;
+  bySource: Record<string, RevenueTotals>;
+};
 
 type TimeseriesBucket = {
   key: string;
@@ -164,6 +190,148 @@ export class AdminAnalyticsService {
       status: { approved, completed, cancelled, noShow },
       bySource,
       byBookingType,
+    };
+  }
+
+  // ─── Revenue (Payment table; integer cents) ─────────────────────────────────
+  //
+  // Refund-awareness: revenue counts only status = PAID rows. Partial refunds
+  // (refundedAmountCents) are NOT yet subtracted — no refund path exists. When
+  // the refund feature lands, subtract refunds per row with net/VAT apportioned
+  // by that row's vatRateBps:
+  //   refundNet = round(refundedAmountCents / (1 + vatRateBps/10000))
+  //   refundVat = refundedAmountCents - refundNet
+  // so Σnet + Σvat stays reconciled with Σgross after refunds.
+
+  /** Load PAID payments whose paidAt falls in [startUtc, endUtc). */
+  private async loadPaidPayments(
+    startUtc: Date,
+    endUtc: Date,
+  ): Promise<PaymentRevenueRow[]> {
+    return this.prisma.payment.findMany({
+      where: {
+        status: PaymentStatus.PAID,
+        paidAt: { gte: startUtc, lt: endUtc },
+      },
+      select: {
+        paidAt: true,
+        source: true,
+        grossCents: true,
+        netCents: true,
+        vatAmountCents: true,
+        vatRateBps: true,
+      },
+    });
+  }
+
+  private emptyTotals(): RevenueTotals {
+    return { grossCents: 0, netCents: 0, vatAmountCents: 0, count: 0 };
+  }
+
+  private addInto(acc: RevenueTotals, r: PaymentRevenueRow): void {
+    acc.grossCents += r.grossCents;
+    acc.netCents += r.netCents;
+    acc.vatAmountCents += r.vatAmountCents;
+    acc.count += 1;
+  }
+
+  /**
+   * Revenue totals for a date range over PAID payments: overall gross/net/VAT,
+   * a breakdown by source, and the net/VAT split grouped by vatRateBps (one
+   * rate-group today; correct if a second rate ever appears). App-side
+   * aggregation over the existing tz-aware UTC range — matches getOverview.
+   */
+  async getRevenueOverview(q: AnalyticsRangeQueryDto) {
+    const timezone = this.tzOrDefault(q.timezone);
+    const { startUtc, endUtc } = this.getUtcRangeForZonedDateRange(
+      q.from,
+      q.to,
+      timezone,
+    );
+
+    const rows = await this.loadPaidPayments(startUtc, endUtc);
+
+    const totals = this.emptyTotals();
+    const bySource: Record<string, RevenueTotals> = {};
+    const byVatRateMap = new Map<number, RevenueTotals>();
+
+    for (const r of rows) {
+      this.addInto(totals, r);
+
+      bySource[r.source] ??= this.emptyTotals();
+      this.addInto(bySource[r.source], r);
+
+      let rate = byVatRateMap.get(r.vatRateBps);
+      if (!rate) {
+        rate = this.emptyTotals();
+        byVatRateMap.set(r.vatRateBps, rate);
+      }
+      this.addInto(rate, r);
+    }
+
+    const byVatRate = [...byVatRateMap.entries()]
+      .map(([vatRateBps, t]) => ({ vatRateBps, ...t }))
+      .sort((a, b) => a.vatRateBps - b.vatRateBps);
+
+    return {
+      timezone,
+      range: { startUtc, endUtc },
+      currency: 'EUR',
+      totals,
+      bySource,
+      byVatRate,
+    };
+  }
+
+  /**
+   * Pre-bucketed revenue series (day/week/month) over PAID payments: gross/net/
+   * VAT per bucket plus a per-source breakdown per bucket. Reuses the existing
+   * tz-aware bucket boundaries (buildBuckets) and key function (bucketKeyForDate)
+   * — same machinery and shape as getTimeseries.
+   */
+  async getRevenueTimeseries(q: AnalyticsTimeseriesQueryDto) {
+    const timezone = this.tzOrDefault(q.timezone);
+    const { startUtc, endUtc } = this.getUtcRangeForZonedDateRange(
+      q.from,
+      q.to,
+      timezone,
+    );
+
+    const rows = await this.loadPaidPayments(startUtc, endUtc);
+
+    // Reuse the existing bucket boundaries (ignore their booking-specific zero
+    // fields); build revenue buckets keyed by the same bucket key.
+    const boundaries = this.buildBuckets(q.from, q.to, q.granularity, timezone);
+    const bucketMap = new Map<string, RevenueBucket>();
+    const items: RevenueBucket[] = boundaries.map((b) => {
+      const rb: RevenueBucket = {
+        key: b.key,
+        label: b.label,
+        startUtc: b.startUtc,
+        endUtc: b.endUtc,
+        totals: this.emptyTotals(),
+        bySource: {},
+      };
+      bucketMap.set(b.key, rb);
+      return rb;
+    });
+
+    for (const r of rows) {
+      const key = this.bucketKeyForDate(r.paidAt, q.granularity, timezone);
+      const rb = bucketMap.get(key);
+      if (!rb) continue; // payment outside any generated bucket — skip defensively
+
+      this.addInto(rb.totals, r);
+      rb.bySource[r.source] ??= this.emptyTotals();
+      this.addInto(rb.bySource[r.source], r);
+    }
+
+    return {
+      timezone,
+      range: { startUtc, endUtc },
+      granularity: q.granularity,
+      currency: 'EUR',
+      items,
     };
   }
 

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { VoucherDelivery } from '@prisma/client';
 import { Resend } from 'resend';
 
 export interface BookingConfirmationData {
@@ -35,6 +36,15 @@ export interface GuestArtistBookingConfirmationData {
   numberOfDays: number;
   totalPrice: number;
   discountPercent: number;
+}
+
+export interface VoucherPurchaseData {
+  to: string;
+  buyerName: string;
+  productName: string;
+  code: string;
+  grossCents: number;
+  delivery: VoucherDelivery;
 }
 
 @Injectable()
@@ -348,6 +358,72 @@ export class EmailService {
       </ul>
       <p style="color:#444;line-height:1.7;margin:0;">
         If you need to reschedule, please contact us as soon as possible. We look forward to seeing you!
+      </p>
+    `);
+
+    await this.send(to, subject, html);
+  }
+
+  async sendVoucherPurchase(data: VoucherPurchaseData): Promise<void> {
+    const { to, buyerName, productName, code, grossCents, delivery } = data;
+    const subject = `Your gift voucher — ${this.studioName}`;
+
+    // QR encodes the raw voucher code; rendered via the same external QR service
+    // the reception dashboard uses (no backend QR generation/storage).
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=0&data=${encodeURIComponent(
+      code,
+    )}`;
+
+    const postalNote =
+      delivery === VoucherDelivery.EMAIL_AND_POST
+        ? `<p style="color:#444;line-height:1.7;margin:0 0 16px;">
+             A printed copy of this voucher will also be mailed to the address you provided.
+           </p>`
+        : '';
+
+    const html = this.wrap(`
+      <h2 style="margin:0 0 16px;color:#111;font-size:22px;">Thank you, ${buyerName}!</h2>
+      <p style="color:#444;line-height:1.7;margin:0 0 16px;">
+        Your gift voucher is ready. Present the code or QR below at ${this.studioName} to redeem it.
+      </p>
+
+      <table cellpadding="0" cellspacing="0" style="background:#f5f5f5;border-radius:6px;padding:16px 20px;margin:24px 0;width:100%;">
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">Voucher</td>
+        </tr>
+        <tr>
+          <td style="font-size:16px;font-weight:bold;color:#111;padding-bottom:12px;">${productName}</td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">Value</td>
+        </tr>
+        <tr>
+          <td style="font-size:20px;font-weight:bold;color:#111;padding-bottom:12px;">€${(grossCents / 100).toFixed(2)} <span style="font-size:12px;font-weight:normal;color:#888;">incl. VAT</span></td>
+        </tr>
+        <tr>
+          <td style="font-size:13px;color:#666;padding-bottom:4px;">Voucher Code</td>
+        </tr>
+        <tr>
+          <td style="font-family:monospace;font-size:20px;font-weight:bold;letter-spacing:1px;color:#111;">${code}</td>
+        </tr>
+      </table>
+
+      <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px;">
+        <tr>
+          <td align="center">
+            <div style="display:inline-block;padding:16px;background:#ffffff;border:1px solid #e5e5e5;border-radius:8px;">
+              <img src="${qrUrl}" alt="Voucher QR code" width="220" height="220" style="display:block;width:220px;height:220px;"/>
+            </div>
+            <p style="font-size:12px;color:#888;margin:8px 0 0;">Scan to redeem in studio</p>
+          </td>
+        </tr>
+      </table>
+
+      ${postalNote}
+
+      <p style="color:#444;line-height:1.7;margin:0;">
+        This voucher can be redeemed once. If you have any questions, just reply to this email
+        or contact us directly. Enjoy!
       </p>
     `);
 

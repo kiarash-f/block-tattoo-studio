@@ -24,14 +24,21 @@ import {
 } from '@nestjs/swagger';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 import { ListBookingsQueryDto } from './dto/list-bookings.query.dto';
 import type { AdminJwtPayload } from '../auth/jwt.strategy';
 
-class ScheduleTattooDto {
+export class ScheduleTattooDto {
   @ApiProperty({ example: '2026-05-20T14:00:00.000Z' })
   @IsDateString()
   scheduledDate: string;
@@ -56,6 +63,15 @@ class ScheduleTattooDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: 25000,
+    description: 'Agreed total price for the tattoo, in integer cents (> 0)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  agreedPriceCents?: number;
 }
 
 @ApiTags('Admin / Bookings')
@@ -136,6 +152,12 @@ export class BookingsController {
           description: 'Client budget range (optional, defaults to UNDER_200)',
         },
         durationNote: { type: 'string', example: '2-3 hours' },
+        agreedPriceCents: {
+          type: 'integer',
+          example: 25000,
+          description:
+            'Agreed total price for the tattoo, in integer cents (> 0, optional)',
+        },
         images: {
           type: 'array',
           items: { type: 'string', format: 'binary' },
@@ -172,6 +194,19 @@ export class BookingsController {
     if (Number.isNaN(tattooDate.getTime())) {
       throw new BadRequestException('Invalid tattooDate — expected ISO date string');
     }
+
+    // Multipart body bypasses the DTO ValidationPipe, so parse/validate manually.
+    let agreedPriceCents: number | undefined;
+    if (body.agreedPriceCents !== undefined && body.agreedPriceCents !== '') {
+      const parsed = Number(body.agreedPriceCents);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new BadRequestException(
+          'agreedPriceCents must be a positive integer (cents)',
+        );
+      }
+      agreedPriceCents = parsed;
+    }
+
     return this.bookings.createWalkIn(
       user.sub,
       {
@@ -191,6 +226,7 @@ export class BookingsController {
         placement: body.placement || undefined,
         sizeDescription: body.sizeDescription || undefined,
         styleNotes: body.styleNotes || undefined,
+        agreedPriceCents,
       },
       files?.images ?? [],
     );
@@ -254,6 +290,7 @@ export class BookingsController {
       stationId: dto.stationId,
       durationNote: dto.durationNote,
       notes: dto.notes,
+      agreedPriceCents: dto.agreedPriceCents,
     });
   }
 }

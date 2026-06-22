@@ -39,6 +39,9 @@ export const envValidationSchema = Joi.object({
   STRIPE_SECRET_KEY: Joi.string().required(),
   STRIPE_WEBHOOK_SECRET: Joi.string().required(),
 
+  // Payments — VAT rate in basis points (1900 = 19%), snapshotted onto each Payment
+  VAT_RATE_BPS: Joi.number().integer().min(0).default(1900),
+
   // Transactional Email (Resend)
   RESEND_API_KEY: Joi.string().optional().allow(''),
   EMAIL_FROM: Joi.string().optional().allow(''),

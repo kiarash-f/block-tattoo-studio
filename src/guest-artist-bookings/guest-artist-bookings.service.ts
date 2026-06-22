@@ -4,7 +4,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { GuestBookingStatus, Prisma } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { GuestBookingStatus, PaymentSource, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from '../stripe/stripe.service';
 import { StationConfigService } from '../station-config/station-config.service';
@@ -48,6 +49,7 @@ export class GuestArtistBookingsService {
     private readonly prisma: PrismaService,
     private readonly stripe: StripeService,
     private readonly configSvc: StationConfigService,
+    private readonly config: ConfigService,
   ) {}
 
   // ─── Availability ──────────────────────────────────────────────────────────
@@ -183,15 +185,23 @@ export class GuestArtistBookingsService {
     });
 
     // ── Create Stripe checkout session ───────────────────────────────────────
+    // Reproduces the previous guest-artist session exactly (same product name,
+    // description, amount, currency and return URLs); only the metadata is now
+    // generic (payment_source / target_id / vat_rate_bps) for the shared webhook.
+    const baseUrl = this.config.getOrThrow<string>('PUBLIC_BASE_URL');
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
     const { sessionId, paymentUrl } = await this.stripe.createCheckoutSession({
-      guestName: dto.name,
+      paymentSource: PaymentSource.GUEST_TABLE,
+      targetId: booking.id,
+      vatRateBps: this.config.get<number>('VAT_RATE_BPS', 1900),
+      amountCents: Math.round(totalPrice * 100), // guest total stays Float in DB; Stripe gets cents
       email: dto.email,
-      totalPrice,
-      bookingId: booking.id,
-      numberOfTables: dto.numberOfTables,
-      numberOfDays,
-      startDate,
-      endDate,
+      productName: 'Guest Artist Table Booking',
+      productDescription:
+        `${dto.numberOfTables} table(s) · ${numberOfDays} day(s) · ` +
+        `${fmt(startDate)} to ${fmt(endDate)}`,
+      successUrl: `${baseUrl}/guest-booking/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${baseUrl}/guest-booking/cancelled`,
     });
 
     // ── Attach Stripe IDs to the booking ─────────────────────────────────────

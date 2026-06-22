@@ -1,16 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PaymentSource } from '@prisma/client';
 import Stripe from 'stripe';
 
 export interface CreateCheckoutSessionParams {
-  guestName: string;
+  /** Routing tag read back by the webhook to create the right Payment record. */
+  paymentSource: PaymentSource;
+  /** Id of the target record this payment is for (e.g. GuestArtistBooking id). */
+  targetId: string;
+  /** VAT rate (basis points) snapshotted into checkout metadata. */
+  vatRateBps: number;
+  /** Amount to charge, in integer cents. */
+  amountCents: number;
   email: string;
-  totalPrice: number;
-  bookingId: string;
-  numberOfTables: number;
-  numberOfDays: number;
-  startDate: Date;
-  endDate: Date;
+  /** Stripe line-item product name. */
+  productName: string;
+  /** Optional Stripe line-item description. */
+  productDescription?: string;
+  /** Success redirect (include `{CHECKOUT_SESSION_ID}` if the page needs it). */
+  successUrl: string;
+  /** Cancel redirect. */
+  cancelUrl: string;
 }
 
 @Injectable()
@@ -30,16 +40,16 @@ export class StripeService {
     params: CreateCheckoutSessionParams,
   ): Promise<{ sessionId: string; paymentUrl: string }> {
     const {
+      paymentSource,
+      targetId,
+      vatRateBps,
+      amountCents,
       email,
-      totalPrice,
-      bookingId,
-      numberOfTables,
-      numberOfDays,
-      startDate,
-      endDate,
+      productName,
+      productDescription,
+      successUrl,
+      cancelUrl,
     } = params;
-
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
     const session = await this.client.checkout.sessions.create({
       mode: 'payment',
@@ -49,19 +59,25 @@ export class StripeService {
           quantity: 1,
           price_data: {
             currency: 'eur',
-            unit_amount: Math.round(totalPrice * 100), // Stripe uses cents
+            unit_amount: amountCents, // integer cents (caller converts)
             product_data: {
-              name: 'Guest Artist Table Booking',
-              description:
-                `${numberOfTables} table(s) · ${numberOfDays} day(s) · ` +
-                `${fmt(startDate)} to ${fmt(endDate)}`,
+              name: productName,
+              ...(productDescription
+                ? { description: productDescription }
+                : {}),
             },
           },
         },
       ],
-      metadata: { booking_id: bookingId },
-      success_url: `${this.config.getOrThrow<string>('PUBLIC_BASE_URL')}/guest-booking/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${this.config.getOrThrow<string>('PUBLIC_BASE_URL')}/guest-booking/cancelled`,
+      // Read back by the webhook to attach the resulting Payment to the right
+      // target. (Stripe metadata values must be strings.)
+      metadata: {
+        payment_source: paymentSource,
+        target_id: targetId,
+        vat_rate_bps: String(vatRateBps),
+      },
+      success_url: successUrl,
+      cancel_url: cancelUrl,
     });
 
     if (!session.url) {
