@@ -69,6 +69,11 @@ export class ArtistsController {
         bio: { type: 'string' },
         avatarUrl: { type: 'string' },
 
+        isFeaturedGuest: { type: 'boolean', example: true },
+        availableFrom: { type: 'string', format: 'date', example: '2026-07-05' },
+        availableTo: { type: 'string', format: 'date', example: '2026-07-08' },
+        instagram: { type: 'string', example: 'alex.ink' },
+
         worksMeta: {
           type: 'string',
           description:
@@ -148,6 +153,11 @@ export class ArtistsController {
         status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
         bio: { type: 'string' },
         avatarUrl: { type: 'string' },
+
+        isFeaturedGuest: { type: 'boolean', example: true },
+        availableFrom: { type: 'string', format: 'date', example: '2026-07-05' },
+        availableTo: { type: 'string', format: 'date', example: '2026-07-08' },
+        instagram: { type: 'string', example: 'alex.ink' },
 
         worksMeta: {
           type: 'string',

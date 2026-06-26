@@ -177,7 +177,10 @@ model AdminUser {
   articles Article[]
 
   // Payments created manually (cash) by this admin
-  payments Payment[]
+  payments Payment[] @relation("PaymentCreatedBy")
+
+  // Payments this admin marked CANCELLED
+  cancelledPayments Payment[] @relation("PaymentCancelledBy")
 
   // Vouchers redeemed (scanned) by this admin
   redeemedVouchers VoucherSale[]
@@ -428,6 +431,13 @@ model Artist {
   avatarUrl String?
   coverUrl  String? // new
 
+  // Featured guest artist promotion (surfaces only on the public profile page).
+  // availableFrom/availableTo are display-only date text; they gate nothing.
+  isFeaturedGuest Boolean   @default(false)
+  availableFrom   DateTime? @db.Date
+  availableTo     DateTime? @db.Date
+  instagram       String? // public contact handle for featured guests
+
   works ArtistWork[] // new relation
 
   assignments    BookingAssignment[]
@@ -597,10 +607,16 @@ model TattooSession {
   stationId String?
   station   StudioStation? @relation(fields: [stationId], references: [id], onDelete: SetNull)
 
+  // scheduledDate = the calendar DAY the tattoo happens (kept as-is).
   scheduledDate DateTime
-  durationNote  String?
-  completedAt   DateTime?
-  notes         String?
+  // Clock-time window within that day (e.g. 15:00–17:00), full ISO timestamps —
+  // follows the BookingAssignment.startsAt/endsAt precedent (no time-only type
+  // exists). Nullable at the DB so pre-feature rows and partial edits stay valid;
+  // REQUIRED at the app layer when scheduling via schedule-tattoo / walk-in.
+  startsAt    DateTime?
+  endsAt      DateTime?
+  completedAt DateTime?
+  notes       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -609,6 +625,8 @@ model TattooSession {
   @@index([artistId])
   @@index([stationId])
   @@index([scheduledDate])
+  // Supports the per-artist same-day collision lookup (artistId + scheduledDate).
+  @@index([artistId, scheduledDate])
 }
 
 // ─── Generic Payment Foundation ──────────────────────────────────────────────
@@ -657,8 +675,15 @@ model Payment {
 
   // ─── Audit ──────────────────────────────────────────────────────────────────
   createdByAdminId String? // null = webhook-created (LINK); set = admin-created (CASH)
-  createdByAdmin   AdminUser? @relation(fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  createdByAdmin   AdminUser? @relation("PaymentCreatedBy", fields: [createdByAdminId], references: [id], onDelete: SetNull)
   note             String?
+
+  // ─── Cancellation (owner marks a payment no-longer-counting; cash refund) ────
+  // A CANCELLED payment is excluded from revenue + booking balance (both filter
+  // status = PAID), so cancelling is the studio's "doesn't count anymore" action.
+  cancelledAt        DateTime?
+  cancelledByAdminId String?
+  cancelledByAdmin   AdminUser? @relation("PaymentCancelledBy", fields: [cancelledByAdminId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -671,6 +696,7 @@ model Payment {
   @@index([voucherSaleId])
   @@index([refundedAt])
   @@index([createdByAdminId])
+  @@index([cancelledByAdminId])
 }
 
 // ─── Gutschein (Gift Voucher) Shop ───────────────────────────────────────────

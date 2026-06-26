@@ -16,6 +16,7 @@ import {
 } from '@prisma/client';
 import { MediaService } from '../media/media.service';
 import { PaymentsService } from '../payments/payments.service';
+import { SessionWindowService } from '../scheduling/session-window.service';
 import { PublicUpdateIntakeDto } from '../booking-links/dto/public-update-intake.dto';
 import { getUtcRangeForZonedDate, getUtcRangeForPeriod, Period } from '../common/time/zoned-date-range';
 
@@ -38,6 +39,7 @@ export class BookingsService {
     private readonly email: EmailService,
     private readonly media: MediaService,
     private readonly payments: PaymentsService,
+    private readonly sessionWindow: SessionWindowService,
   ) {}
 
   async list(params: {
@@ -251,7 +253,8 @@ export class BookingsService {
       scheduledDate: Date;
       artistId: string;
       stationId?: string;
-      durationNote?: string;
+      startsAt: string;
+      endsAt: string;
       notes?: string;
       agreedPriceCents?: number;
     },
@@ -278,6 +281,15 @@ export class BookingsService {
       throw new BadRequestException('Artist not found or inactive');
     }
 
+    // Validate the window + reject a per-artist same-day overlap (shared helper).
+    const window = this.sessionWindow.parseWindow(data.startsAt, data.endsAt);
+    await this.sessionWindow.assertNoArtistCollision({
+      artistId: data.artistId,
+      scheduledDate: data.scheduledDate,
+      startsAt: window.startsAt,
+      endsAt: window.endsAt,
+    });
+
     const session = await this.prisma.$transaction(async (tx) => {
       const s = await tx.tattooSession.create({
         data: {
@@ -285,7 +297,8 @@ export class BookingsService {
           artistId: data.artistId,
           stationId: data.stationId,
           scheduledDate: data.scheduledDate,
-          durationNote: data.durationNote,
+          startsAt: window.startsAt,
+          endsAt: window.endsAt,
           notes: data.notes,
         },
         include: { artist: { select: { id: true, displayName: true } } },
@@ -333,7 +346,8 @@ export class BookingsService {
       tattooDate: Date;
       artistId: string;
       stationId?: string;
-      durationNote?: string;
+      startsAt: string;
+      endsAt: string;
       placement?: string;
       sizeDescription?: string;
       styleNotes?: string;
@@ -348,6 +362,15 @@ export class BookingsService {
     if (!artist || artist.status !== 'ACTIVE') {
       throw new BadRequestException('Artist not found or inactive');
     }
+
+    // Same shared window validation + per-artist collision check as schedule-tattoo.
+    const window = this.sessionWindow.parseWindow(data.startsAt, data.endsAt);
+    await this.sessionWindow.assertNoArtistCollision({
+      artistId: data.artistId,
+      scheduledDate: data.tattooDate,
+      startsAt: window.startsAt,
+      endsAt: window.endsAt,
+    });
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Upsert client
@@ -407,7 +430,8 @@ export class BookingsService {
           artistId: data.artistId,
           stationId: data.stationId,
           scheduledDate: data.tattooDate,
-          durationNote: data.durationNote,
+          startsAt: window.startsAt,
+          endsAt: window.endsAt,
         },
       });
 

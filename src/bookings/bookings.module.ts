@@ -7,6 +7,7 @@ import { AdminAnalyticsModule } from './admin-analytics/admin-analytics.module';
 import { AdminBookingsModule } from './admin/admin-bookings.module';
 import { MediaModule } from '../media/media.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { SessionWindowModule } from '../scheduling/session-window.module';
 
 @Module({
   controllers: [BookingsController, AdminAppointmentsController],
@@ -17,6 +18,7 @@ import { PaymentsModule } from '../payments/payments.module';
     AdminBookingsModule,
     MediaModule,
     PaymentsModule,
+    SessionWindowModule,
   ],
 })
 export class BookingsModule {}

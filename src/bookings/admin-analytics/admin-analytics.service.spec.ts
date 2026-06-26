@@ -141,3 +141,16 @@ describe('AdminAnalyticsService — revenue timeseries (timezone bucketing)', ()
     expect(feb16?.totals).toMatchObject({ count: 1, grossCents: 5950 });
   });
 });
+
+describe('AdminAnalyticsService — cancelled excluded from revenue', () => {
+  it('(c) the revenue query filters status = PAID (so CANCELLED drops out)', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findMany.mockResolvedValue([]);
+
+    await service.getRevenueOverview({ from: '2026-02-01', to: '2026-02-28' });
+
+    expect(prisma.payment.findMany.mock.calls[0][0].where.status).toBe(
+      PaymentStatus.PAID,
+    );
+  });
+});

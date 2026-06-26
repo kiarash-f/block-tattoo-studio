@@ -19,7 +19,6 @@ import { AuthGuard } from '@nestjs/passport';
 import { SchedulingService } from './scheduling.service';
 import { CreateConsultSlotDto } from './dto/create-consult-slot.dto';
 import { AssignConsultSlotDto } from './dto/assign-consult-slot.dto';
-import { CreateTattooSessionDto } from './dto/create-tattoo-session.dto';
 import { UpdateTattooSessionDto } from './dto/update-tattoo-session.dto';
 
 // ─── Admin: Consult Slots ─────────────────────────────────────────────────────
@@ -101,40 +100,7 @@ export class AdminBookingConsultController {
   }
 }
 
-// ─── Admin: Tattoo Sessions ───────────────────────────────────────────────────
-
-@ApiTags('Admin / Tattoo Sessions')
-@ApiBearerAuth('admin-jwt')
-@UseGuards(AuthGuard('jwt'))
-@Controller('admin/bookings')
-export class AdminTattooSessionsController {
-  constructor(private readonly service: SchedulingService) {}
-
-  @Post(':id/sessions')
-  @ApiOperation({
-    summary: 'Create a tattoo session for a booking (station auto-resolved)',
-    description:
-      'Creates a scheduled tattoo session for a booking. The studio station is auto-resolved from the booking assignment if not specified.',
-  })
-  @ApiParam({ name: 'id', description: 'BookingRequest ID' })
-  @ApiResponse({ status: 201, description: 'Tattoo session created.' })
-  @ApiResponse({ status: 404, description: 'Booking request not found.' })
-  create(@Param('id') id: string, @Body() dto: CreateTattooSessionDto) {
-    return this.service.createTattooSession(id, dto);
-  }
-
-  @Get(':id/sessions')
-  @ApiOperation({
-    summary: 'List all tattoo sessions for a booking',
-    description:
-      'Returns all scheduled tattoo sessions for a specific booking request, ordered by date.',
-  })
-  @ApiParam({ name: 'id', description: 'BookingRequest ID' })
-  @ApiResponse({ status: 200, description: 'List of tattoo sessions.' })
-  list(@Param('id') id: string) {
-    return this.service.listTattooSessions(id);
-  }
-}
+// ─── Admin: Tattoo Session Actions (by sessionId) ─────────────────────────────
 
 @ApiTags('Admin / Tattoo Sessions')
 @ApiBearerAuth('admin-jwt')

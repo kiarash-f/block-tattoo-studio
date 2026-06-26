@@ -10,12 +10,12 @@ export class ArtistPageQueryDto {
   @Transform(({ value }) => Number(value))
   @IsInt()
   @Min(1)
-  worksPage: number = 1;
+  worksPage?: number = 1;
 
   @IsOptional()
   @Transform(({ value }) => Number(value))
   @IsInt()
   @Min(1)
   @Max(100)
-  worksLimit: number = 12;
+  worksLimit?: number = 12;
 }

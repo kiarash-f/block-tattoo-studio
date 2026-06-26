@@ -208,6 +208,44 @@ export class PaymentsService {
   }
 
   /**
+   * Mark a PAID payment as CANCELLED (the studio's "no-longer-counting" action;
+   * the owner handles any actual refund in cash). A CANCELLED row is excluded
+   * from revenue analytics and from booking balance — both filter status = PAID —
+   * so nothing else needs to change for it to drop out of totals.
+   *
+   * Only PAID → CANCELLED is allowed; an already-CANCELLED or REFUNDED payment is
+   * rejected. An optional reason is appended to the note for audit.
+   */
+  async cancelPayment(id: string, adminId: string, reason?: string) {
+    const payment = await this.prisma.payment.findUnique({ where: { id } });
+    if (!payment) {
+      throw new NotFoundException(`Payment ${id} not found`);
+    }
+    if (payment.status !== PaymentStatus.PAID) {
+      throw new BadRequestException(
+        `Only a PAID payment can be cancelled (current status: ${payment.status})`,
+      );
+    }
+
+    const trimmedReason = reason?.trim();
+    const note = trimmedReason
+      ? payment.note
+        ? `${payment.note} | Cancelled: ${trimmedReason}`
+        : `Cancelled: ${trimmedReason}`
+      : payment.note;
+
+    return this.prisma.payment.update({
+      where: { id },
+      data: {
+        status: PaymentStatus.CANCELLED,
+        cancelledAt: new Date(),
+        cancelledByAdminId: adminId,
+        note,
+      },
+    });
+  }
+
+  /**
    * Create a single Payment row (status PAID). Shared by the cash and link paths.
    * Idempotency on stripeSessionId is enforced by the unique index and guarded
    * upstream by the webhook; this method only records the payment.

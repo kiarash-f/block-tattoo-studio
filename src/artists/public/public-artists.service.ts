@@ -119,6 +119,10 @@ export class PublicArtistsService {
         bio: true,
         bioDe: true,
         bioEn: true,
+        isFeaturedGuest: true,
+        availableFrom: true,
+        availableTo: true,
+        instagram: true,
       },
     });
 
@@ -152,7 +156,17 @@ export class PublicArtistsService {
     ]);
 
     return {
-      artist,
+      // availableFrom/availableTo are @db.Date — return as plain YYYY-MM-DD
+      // display strings (frontend composes the "Available …" range text).
+      artist: {
+        ...artist,
+        availableFrom: artist.availableFrom
+          ? artist.availableFrom.toISOString().slice(0, 10)
+          : null,
+        availableTo: artist.availableTo
+          ? artist.availableTo.toISOString().slice(0, 10)
+          : null,
+      },
       works: {
         page,
         limit,

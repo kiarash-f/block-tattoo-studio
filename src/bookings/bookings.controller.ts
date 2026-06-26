@@ -52,11 +52,19 @@ export class ScheduleTattooDto {
   @IsString()
   stationId?: string;
 
-  @ApiPropertyOptional({ example: '3-4 hours' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  durationNote?: string;
+  @ApiProperty({
+    example: '2026-05-20T15:00:00.000Z',
+    description: 'Clock-time window start within scheduledDate (ISO 8601).',
+  })
+  @IsDateString()
+  startsAt: string;
+
+  @ApiProperty({
+    example: '2026-05-20T17:00:00.000Z',
+    description: 'Clock-time window end (ISO 8601). Must be after startsAt.',
+  })
+  @IsDateString()
+  endsAt: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -118,6 +126,8 @@ export class BookingsController {
         'description',
         'tattooDate',
         'artistId',
+        'startsAt',
+        'endsAt',
       ],
       properties: {
         firstName: { type: 'string', example: 'Jane' },
@@ -151,7 +161,18 @@ export class BookingsController {
           example: 'B200_400',
           description: 'Client budget range (optional, defaults to UNDER_200)',
         },
-        durationNote: { type: 'string', example: '2-3 hours' },
+        startsAt: {
+          type: 'string',
+          format: 'date-time',
+          example: '2026-04-14T15:00:00.000Z',
+          description: 'Clock-time window start (ISO). Required.',
+        },
+        endsAt: {
+          type: 'string',
+          format: 'date-time',
+          example: '2026-04-14T17:00:00.000Z',
+          description: 'Clock-time window end (ISO). Required, after startsAt.',
+        },
         agreedPriceCents: {
           type: 'integer',
           example: 25000,
@@ -222,7 +243,8 @@ export class BookingsController {
         tattooDate,
         artistId: body.artistId,
         stationId: body.stationId || undefined,
-        durationNote: body.durationNote || undefined,
+        startsAt: body.startsAt,
+        endsAt: body.endsAt,
         placement: body.placement || undefined,
         sizeDescription: body.sizeDescription || undefined,
         styleNotes: body.styleNotes || undefined,
@@ -288,7 +310,8 @@ export class BookingsController {
       scheduledDate: new Date(dto.scheduledDate),
       artistId: dto.artistId,
       stationId: dto.stationId,
-      durationNote: dto.durationNote,
+      startsAt: dto.startsAt,
+      endsAt: dto.endsAt,
       notes: dto.notes,
       agreedPriceCents: dto.agreedPriceCents,
     });

@@ -1,7 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { PaymentMethod, PaymentSource } from '@prisma/client';
+import { PaymentMethod, PaymentSource, PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from './payments.service';
 
@@ -19,6 +19,15 @@ async function createService(defaultVatRateBps = 1900) {
       aggregate: jest.fn(),
       count: jest.fn(),
       findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(
+        ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => Promise.resolve({ id: where.id, ...data })),
     },
     bookingRequest: { findUnique: jest.fn() },
     guestArtistBooking: { findUnique: jest.fn() },
@@ -445,5 +454,98 @@ describe('PaymentsService — list context normalization', () => {
     // Raw nested relations are not leaked into the list shape.
     expect((t as Record<string, unknown>).bookingRequest).toBeUndefined();
     expect((g as Record<string, unknown>).guestArtistBooking).toBeUndefined();
+  });
+});
+
+describe('PaymentsService — cancelPayment', () => {
+  it('(a) flips PAID → CANCELLED and stamps the audit fields', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findUnique.mockResolvedValue({
+      id: 'p1',
+      status: PaymentStatus.PAID,
+      note: null,
+    });
+
+    const res = await service.cancelPayment('p1', 'admin_1', 'Refunded in cash');
+
+    expect(prisma.payment.update).toHaveBeenCalledTimes(1);
+    const data = prisma.payment.update.mock.calls[0][0].data;
+    expect(data.status).toBe(PaymentStatus.CANCELLED);
+    expect(data.cancelledByAdminId).toBe('admin_1');
+    expect(data.cancelledAt).toBeInstanceOf(Date);
+    expect(data.note).toBe('Cancelled: Refunded in cash');
+    expect(res.status).toBe(PaymentStatus.CANCELLED);
+  });
+
+  it('appends the reason to an existing note', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findUnique.mockResolvedValue({
+      id: 'p1',
+      status: PaymentStatus.PAID,
+      note: 'cash at desk',
+    });
+    await service.cancelPayment('p1', 'admin_1', 'refunded');
+    expect(prisma.payment.update.mock.calls[0][0].data.note).toBe(
+      'cash at desk | Cancelled: refunded',
+    );
+  });
+
+  it('leaves the note unchanged when no reason is given', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findUnique.mockResolvedValue({
+      id: 'p1',
+      status: PaymentStatus.PAID,
+      note: 'cash',
+    });
+    await service.cancelPayment('p1', 'admin_1');
+    expect(prisma.payment.update.mock.calls[0][0].data.note).toBe('cash');
+  });
+
+  it('(b) rejects cancelling an already-CANCELLED payment', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findUnique.mockResolvedValue({
+      id: 'p1',
+      status: PaymentStatus.CANCELLED,
+    });
+    await expect(service.cancelPayment('p1', 'admin_1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.payment.update).not.toHaveBeenCalled();
+  });
+
+  it('(b) rejects cancelling a REFUNDED payment', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findUnique.mockResolvedValue({
+      id: 'p1',
+      status: PaymentStatus.REFUNDED,
+    });
+    await expect(service.cancelPayment('p1', 'admin_1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(prisma.payment.update).not.toHaveBeenCalled();
+  });
+
+  it('404s an unknown payment', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findUnique.mockResolvedValue(null);
+    await expect(
+      service.cancelPayment('nope', 'admin_1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('PaymentsService — cancelled excluded from booking balance', () => {
+  it('(c) the paid-sum aggregate filters status = PAID (so CANCELLED drops out)', async () => {
+    const { service, prisma } = await createService();
+    prisma.bookingRequest.findUnique.mockResolvedValue({ agreedPriceCents: 10000 });
+    prisma.payment.aggregate.mockResolvedValue({
+      _sum: { grossCents: 5000, refundedAmountCents: null },
+    });
+
+    await service.getBookingBalance('br_1');
+
+    expect(prisma.payment.aggregate.mock.calls[0][0].where.status).toBe(
+      PaymentStatus.PAID,
+    );
   });
 });

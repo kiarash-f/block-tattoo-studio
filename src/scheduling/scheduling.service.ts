@@ -3,19 +3,23 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { BookingStatus, StationStatus } from '@prisma/client';
+import { BookingStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { CreateConsultSlotDto } from './dto/create-consult-slot.dto';
 import { AssignConsultSlotDto } from './dto/assign-consult-slot.dto';
-import { CreateTattooSessionDto } from './dto/create-tattoo-session.dto';
 import { UpdateTattooSessionDto } from './dto/update-tattoo-session.dto';
+import {
+  SessionWindowService,
+  ValidatedWindow,
+} from './session-window.service';
 
 @Injectable()
 export class SchedulingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly window: SessionWindowService,
   ) {}
 
   // ─── Consult Slots ────────────────────────────────────────────────────────
@@ -165,86 +169,6 @@ export class SchedulingService {
 
   // ─── Tattoo Sessions ──────────────────────────────────────────────────────
 
-  async createTattooSession(bookingId: string, dto: CreateTattooSessionDto) {
-    const booking = await this.prisma.bookingRequest.findUnique({
-      where: { id: bookingId },
-      select: {
-        id: true,
-        status: true,
-        client: { select: { email: true, firstName: true, lastName: true } },
-      },
-    });
-    if (!booking) throw new NotFoundException('Booking not found');
-
-    if (booking.status !== BookingStatus.CONSULT_APPROVED) {
-      throw new BadRequestException(
-        'Booking must be CONSULT_APPROVED before creating a tattoo session',
-      );
-    }
-
-    const scheduledDate = new Date(dto.scheduledDate);
-    if (scheduledDate <= new Date()) {
-      throw new BadRequestException('Session date must be in the future');
-    }
-
-    // Verify artist exists
-    const artist = await this.prisma.artist.findUnique({
-      where: { id: dto.artistId },
-      select: { id: true, displayName: true },
-    });
-    if (!artist) throw new NotFoundException('Artist not found');
-
-    // Auto-resolve the single active station
-    const station = await this.prisma.studioStation.findFirst({
-      where: { status: StationStatus.ACTIVE },
-      select: { id: true },
-    });
-
-    const session = await this.prisma.tattooSession.create({
-      data: {
-        bookingRequestId: bookingId,
-        artistId: dto.artistId,
-        stationId: station?.id ?? null,
-        scheduledDate,
-        durationNote: dto.durationNote,
-        notes: dto.notes,
-      },
-      include: {
-        artist: { select: { id: true, displayName: true } },
-        station: { select: { id: true, name: true } },
-      },
-    });
-    if (booking.client.email) {
-      this.email
-        .sendSessionReminder({
-          to: booking.client.email,
-          clientName:
-            `${booking.client.firstName}${booking.client.lastName}`.trim(),
-          sessionDate: session.scheduledDate,
-          artistName: session.artist.displayName,
-        })
-        .catch(() => void 0);
-    }
-    return session;
-  }
-
-  async listTattooSessions(bookingId: string) {
-    const booking = await this.prisma.bookingRequest.findUnique({
-      where: { id: bookingId },
-      select: { id: true },
-    });
-    if (!booking) throw new NotFoundException('Booking not found');
-
-    return this.prisma.tattooSession.findMany({
-      where: { bookingRequestId: bookingId },
-      orderBy: { scheduledDate: 'asc' },
-      include: {
-        artist: { select: { id: true, displayName: true } },
-        station: { select: { id: true, name: true } },
-      },
-    });
-  }
-
   async updateTattooSession(sessionId: string, dto: UpdateTattooSessionDto) {
     const session = await this.prisma.tattooSession.findUnique({
       where: { id: sessionId },
@@ -266,15 +190,48 @@ export class SchedulingService {
       if (!artist) throw new NotFoundException('Artist not found');
     }
 
+    // Window edit: if either bound is supplied, validate the full (merged) window
+    // via the same shared helper the scheduling paths use.
+    const editingWindow =
+      dto.startsAt !== undefined || dto.endsAt !== undefined;
+    let nextWindow: ValidatedWindow | null = null;
+    if (editingWindow) {
+      nextWindow = this.window.parseWindow(
+        dto.startsAt ?? session.startsAt?.toISOString() ?? null,
+        dto.endsAt ?? session.endsAt?.toISOString() ?? null,
+      );
+    }
+
+    // Re-run the collision check whenever the session MOVES (artist, day, or
+    // window changes) and an effective window exists — so an edit can't create
+    // an overlap. Exclude this session so it doesn't clash with its own row.
+    const nextArtistId = dto.artistId ?? session.artistId;
+    const nextScheduledDate = dto.scheduledDate
+      ? new Date(dto.scheduledDate)
+      : session.scheduledDate;
+    const effStartsAt = nextWindow?.startsAt ?? session.startsAt;
+    const effEndsAt = nextWindow?.endsAt ?? session.endsAt;
+    const moved =
+      dto.artistId !== undefined ||
+      dto.scheduledDate !== undefined ||
+      editingWindow;
+    if (moved && effStartsAt && effEndsAt) {
+      await this.window.assertNoArtistCollision({
+        artistId: nextArtistId,
+        scheduledDate: nextScheduledDate,
+        startsAt: effStartsAt,
+        endsAt: effEndsAt,
+        excludeSessionId: sessionId,
+      });
+    }
+
     return this.prisma.tattooSession.update({
       where: { id: sessionId },
       data: {
-        ...(dto.scheduledDate
-          ? { scheduledDate: new Date(dto.scheduledDate) }
-          : {}),
+        ...(dto.scheduledDate ? { scheduledDate: nextScheduledDate } : {}),
         ...(dto.artistId ? { artistId: dto.artistId } : {}),
-        ...(dto.durationNote !== undefined
-          ? { durationNote: dto.durationNote }
+        ...(nextWindow
+          ? { startsAt: nextWindow.startsAt, endsAt: nextWindow.endsAt }
           : {}),
         ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
       },

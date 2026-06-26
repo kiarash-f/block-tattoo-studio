@@ -34,12 +34,14 @@ export class ArtistsService {
   ) {
     const slug = this.resolveSlug(dto.slug, dto.handle, dto.displayName);
 
-    const coverFile = files.cover?.[0];
+    this.assertAvailabilityOrder(dto.availableFrom, dto.availableTo);
+
+    const coverFile = files?.cover?.[0];
     const coverUrl = coverFile
       ? (await this.uploadToCloudinary(coverFile, 'artists/covers')).url
       : undefined;
 
-    const workFiles = files.works ?? [];
+    const workFiles = files?.works ?? [];
     const worksMeta = this.parseWorksMeta(workFiles.length, dto.worksMeta);
 
     const now = new Date();
@@ -77,6 +79,12 @@ export class ArtistsService {
           bio: dto.bio,
           avatarUrl: dto.avatarUrl,
           coverUrl,
+          isFeaturedGuest: dto.isFeaturedGuest ?? false,
+          availableFrom: dto.availableFrom
+            ? new Date(dto.availableFrom)
+            : undefined,
+          availableTo: dto.availableTo ? new Date(dto.availableTo) : undefined,
+          instagram: this.normalizeInstagram(dto.instagram),
           ...translations,
         },
       });
@@ -116,6 +124,13 @@ export class ArtistsService {
   ) {
     const existing = await this.findOne(id);
 
+    // Validate the EFFECTIVE (merged) availability range, so a partial update
+    // (e.g. changing only availableFrom) is still checked against the stored end.
+    this.assertAvailabilityOrder(
+      dto.availableFrom ?? existing.availableFrom,
+      dto.availableTo ?? existing.availableTo,
+    );
+
     const hasSlug = dto.slug !== undefined && dto.slug !== '';
     const nextSlug = hasSlug
       ? this.resolveSlug(
@@ -130,12 +145,12 @@ export class ArtistsService {
           dto.displayName || existing.displayName,
         ));
 
-    const coverFile = files.cover?.[0];
+    const coverFile = files?.cover?.[0];
     const coverUrl = coverFile
       ? (await this.uploadToCloudinary(coverFile, 'artists/covers')).url
       : undefined;
 
-    const workFiles = files.works ?? [];
+    const workFiles = files?.works ?? [];
     const worksMeta = this.parseWorksMeta(workFiles.length, dto.worksMeta);
 
     const has = (v: string | undefined) => v !== undefined && v !== '';
@@ -150,6 +165,18 @@ export class ArtistsService {
       ...(has(dto.bio) ? { bio: dto.bio } : {}),
       ...(has(dto.avatarUrl) ? { avatarUrl: dto.avatarUrl } : {}),
       ...(coverUrl ? { coverUrl } : {}),
+      ...(dto.isFeaturedGuest !== undefined
+        ? { isFeaturedGuest: dto.isFeaturedGuest }
+        : {}),
+      ...(dto.availableFrom !== undefined
+        ? { availableFrom: new Date(dto.availableFrom) }
+        : {}),
+      ...(dto.availableTo !== undefined
+        ? { availableTo: new Date(dto.availableTo) }
+        : {}),
+      ...(has(dto.instagram)
+        ? { instagram: this.normalizeInstagram(dto.instagram) }
+        : {}),
     };
 
     const now = new Date();
@@ -417,5 +444,29 @@ export class ArtistsService {
       this.translation.translate(bio, 'EN-GB'),
     ]);
     return { bioDe, bioEn };
+  }
+
+  /** availableTo must not precede availableFrom (display dates; gate nothing). */
+  private assertAvailabilityOrder(
+    from: string | Date | null | undefined,
+    to: string | Date | null | undefined,
+  ): void {
+    if (!from || !to) return;
+    if (new Date(to) < new Date(from)) {
+      throw new BadRequestException(
+        'availableTo must not be before availableFrom',
+      );
+    }
+  }
+
+  /**
+   * Normalize an Instagram handle: trim and strip a leading "@". We store the
+   * BARE handle (no "@") so it renders consistently and links cleanly to
+   * instagram.com/<handle>. Returns undefined for empty/blank input.
+   */
+  private normalizeInstagram(value?: string): string | undefined {
+    if (value === undefined) return undefined;
+    const v = value.trim().replace(/^@+/, '').trim();
+    return v.length ? v : undefined;
   }
 }
