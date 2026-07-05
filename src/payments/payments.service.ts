@@ -297,6 +297,29 @@ export class PaymentsService {
     });
   }
 
+  // ─── Public status lookup ───────────────────────────────────────────────────
+
+  /**
+   * Public, read-only check of whether a checkout session's payment has been
+   * recorded. Reads our own DB (the webhook is the source of truth) — never
+   * calls Stripe. Unknown and not-yet-processed session ids both read as
+   * PENDING by design; the frontend disambiguates by polling timeout, so this
+   * never throws 404. Returns only { status, context } — no amount/customer.
+   */
+  async getPublicStatusBySessionId(sessionId: string): Promise<{
+    status: 'PAID' | 'PENDING';
+    context: PaymentSource | null;
+  }> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { stripeSessionId: sessionId },
+      select: { source: true },
+    });
+
+    return payment
+      ? { status: 'PAID', context: payment.source }
+      : { status: 'PENDING', context: null };
+  }
+
   // ─── Balance (computed fresh, never stored) ─────────────────────────────────
 
   /**
