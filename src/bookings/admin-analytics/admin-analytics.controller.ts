@@ -44,17 +44,6 @@ export class AdminAnalyticsController {
     return this.analytics.getTimeseries(q);
   }
 
-  @Get('sources')
-  @ApiOperation({
-    summary: 'Counts grouped by booking source',
-    description:
-      'Returns booking counts broken down by referral source (e.g. instagram, google, walk-in) for the given date range.',
-  })
-  @ApiResponse({ status: 200, description: 'Source breakdown returned.' })
-  sources(@Query() q: AnalyticsRangeQueryDto) {
-    return this.analytics.getSources(q);
-  }
-
   @Get('utm')
   @ApiOperation({
     summary: 'Counts grouped by UTM dimension',
