@@ -27,7 +27,9 @@ export class AdminAnalyticsController {
     summary: 'Get analytics overview for a date range',
     description:
       'Returns total bookings and breakdown by type and status for the given ' +
-      'date range. (Revenue lives at GET /admin/analytics/revenue.)',
+      'date range, including the channel breakdown by source (bySource). ' +
+      '(Revenue lives at GET /admin/analytics/revenue; per-artist breakdown ' +
+      'lives at GET /admin/analytics/capacity.)',
   })
   @ApiResponse({ status: 200, description: 'Analytics overview returned.' })
   overview(@Query() q: AnalyticsRangeQueryDto) {
@@ -38,7 +40,9 @@ export class AdminAnalyticsController {
   @ApiOperation({
     summary: 'Analytics timeseries for a date range',
     description:
-      'Returns daily booking counts over the specified date range, grouped by the requested interval.',
+      'Returns booking counts over the specified date range, grouped by the ' +
+      'requested interval (day/week/month). (Revenue timeseries lives at GET ' +
+      '/admin/analytics/revenue/timeseries.)',
   })
   @ApiResponse({ status: 200, description: 'Timeseries data returned.' })
   timeseries(@Query() q: AnalyticsTimeseriesQueryDto) {
