@@ -7,6 +7,7 @@ import {
   AnalyticsTimeseriesQueryDto,
   AnalyticsUtmQueryDto,
 } from './dto/analytics-range-query.dto';
+import { AnalyticsCapacityQueryDto } from './dto/analytics-capacity-query.dto';
 
 type BookingStatusString = string;
 type CancelReasonString = string;
@@ -26,6 +27,35 @@ type MinimalRow = {
 };
 
 type UtcRange = { startUtc: Date; endUtc: Date };
+
+/**
+ * One TattooSession joined to its artist's name and its BookingRequest's
+ * lifecycle fields. Completion/cancellation are derived from the BookingRequest
+ * (not TattooSession.completedAt, which the schedule-tattoo write path never
+ * sets) — same source of truth as getOverview.
+ */
+type CapacitySessionRow = {
+  artistId: string;
+  stationId: string | null;
+  artist: { displayName: string };
+  bookingRequest: {
+    status: BookingStatusString;
+    cancelReason: CancelReasonString | null;
+    completedAt: Date | null;
+    cancelledAt: Date | null;
+    bookingType: string;
+  };
+};
+
+type CapacityArtistRow = {
+  artistId: string;
+  artistName: string;
+  total: number;
+  completed: number;
+  cancelled: number;
+  noShow: number;
+  byStation: Record<string, number>;
+};
 
 type PaymentRevenueRow = {
   paidAt: Date;
@@ -190,6 +220,97 @@ export class AdminAnalyticsService {
       status: { approved, completed, cancelled, noShow },
       bySource,
       byBookingType,
+    };
+  }
+
+  /**
+   * Booking capacity by artist over a date range.
+   *
+   * Unit of count is the TattooSession (a multi-session tattoo contributes one
+   * count per session), filtered by TattooSession.scheduledDate — the day the
+   * artist actually works — using the same tz-aware UTC range as the rest of
+   * this file. Optional artistId/stationId narrow to one artist/station.
+   *
+   * No `approved` field: a session can only exist if its booking was approved
+   * (scheduleTattooSession runs only from CONSULT_APPROVED), so it is always
+   * 100% and carries no information. completed/cancelled/noShow are derived
+   * from the joined BookingRequest, identical to getOverview's status logic.
+   */
+  async getCapacity(q: AnalyticsCapacityQueryDto) {
+    const timezone = this.tzOrDefault(q.timezone);
+    const { startUtc, endUtc } = this.getUtcRangeForZonedDateRange(
+      q.from,
+      q.to,
+      timezone,
+    );
+
+    const includeWalkIn = q.includeWalkIn ?? true;
+
+    const where: any = {
+      scheduledDate: { gte: startUtc, lt: endUtc },
+    };
+    if (q.artistId) where.artistId = q.artistId;
+    if (q.stationId) where.stationId = q.stationId;
+    if (!includeWalkIn) {
+      where.bookingRequest = { bookingType: { not: 'WALK_IN' } };
+    }
+
+    const sessions = (await this.prisma.tattooSession.findMany({
+      where,
+      select: {
+        artistId: true,
+        stationId: true,
+        artist: { select: { displayName: true } },
+        bookingRequest: {
+          select: {
+            status: true,
+            cancelReason: true,
+            completedAt: true,
+            cancelledAt: true,
+            bookingType: true,
+          },
+        },
+      },
+    })) as CapacitySessionRow[];
+
+    // Aggregate by artistId in app code (plain accumulator, matching this file).
+    const byArtist = new Map<string, CapacityArtistRow>();
+
+    for (const s of sessions) {
+      let row = byArtist.get(s.artistId);
+      if (!row) {
+        row = {
+          artistId: s.artistId,
+          artistName: s.artist.displayName,
+          total: 0,
+          completed: 0,
+          cancelled: 0,
+          noShow: 0,
+          byStation: {},
+        };
+        byArtist.set(s.artistId, row);
+      }
+
+      const br = s.bookingRequest;
+      row.total++;
+      if (br.status === 'COMPLETED' || br.completedAt) row.completed++;
+      if (br.status === 'CANCELLED' || br.cancelledAt) row.cancelled++;
+      if (br.status === 'CANCELLED' && br.cancelReason === 'NO_SHOW') {
+        row.noShow++;
+      }
+
+      const stationKey = s.stationId ?? 'unassigned';
+      row.byStation[stationKey] = (row.byStation[stationKey] ?? 0) + 1;
+    }
+
+    const artists = [...byArtist.values()].sort(
+      (a, b) => b.total - a.total || a.artistId.localeCompare(b.artistId),
+    );
+
+    return {
+      timezone,
+      range: { startUtc, endUtc },
+      artists,
     };
   }
 
