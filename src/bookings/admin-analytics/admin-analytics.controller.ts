@@ -10,6 +10,7 @@ import {
   AnalyticsTimeseriesQueryDto,
   AnalyticsUtmQueryDto,
 } from './dto/analytics-range-query.dto';
+import { AnalyticsCapacityQueryDto } from './dto/analytics-capacity-query.dto';
 import { AdminAnalyticsService } from './admin-analytics.service';
 import { AuthGuard } from '@nestjs/passport';
 import { UseGuards } from '@nestjs/common';
@@ -42,6 +43,19 @@ export class AdminAnalyticsController {
   @ApiResponse({ status: 200, description: 'Timeseries data returned.' })
   timeseries(@Query() q: AnalyticsTimeseriesQueryDto) {
     return this.analytics.getTimeseries(q);
+  }
+
+  @Get('capacity')
+  @ApiOperation({
+    summary: 'Booking capacity by artist for a date range',
+    description:
+      'Returns TattooSession counts (total/completed/cancelled/noShow) grouped by ' +
+      'artist, filtered by scheduledDate in range. Optional artistId/stationId ' +
+      'narrow to one artist/station; omitted, returns all artists.',
+  })
+  @ApiResponse({ status: 200, description: 'Capacity breakdown returned.' })
+  capacity(@Query() q: AnalyticsCapacityQueryDto) {
+    return this.analytics.getCapacity(q);
   }
 
   @Get('utm')

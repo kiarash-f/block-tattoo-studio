@@ -6,6 +6,7 @@ import { AdminAnalyticsService } from './admin-analytics.service';
 async function createService() {
   const prisma = {
     payment: { findMany: jest.fn() },
+    tattooSession: { findMany: jest.fn() },
   };
   const module: TestingModule = await Test.createTestingModule({
     providers: [
@@ -152,5 +153,148 @@ describe('AdminAnalyticsService — cancelled excluded from revenue', () => {
     expect(prisma.payment.findMany.mock.calls[0][0].where.status).toBe(
       PaymentStatus.PAID,
     );
+  });
+});
+
+// ─── Capacity by artist (TattooSession counts) ──────────────────────────────
+//
+// getCapacity filters TattooSession.scheduledDate in the tz-aware UTC range and
+// derives completed/cancelled/noShow from the joined BookingRequest (not
+// TattooSession.completedAt, which the schedule-tattoo path never writes).
+
+/** Build a TattooSession-shaped row as returned by the mocked findMany. */
+function sess(
+  artistId: string,
+  opts: {
+    artistName?: string;
+    stationId?: string | null;
+    status?: string;
+    cancelReason?: string | null;
+    completedAt?: Date | null;
+    cancelledAt?: Date | null;
+    bookingType?: string;
+  } = {},
+) {
+  return {
+    artistId,
+    stationId: opts.stationId ?? null,
+    artist: { displayName: opts.artistName ?? artistId },
+    bookingRequest: {
+      status: opts.status ?? 'TATTOO_SCHEDULED',
+      cancelReason: opts.cancelReason ?? null,
+      completedAt: opts.completedAt ?? null,
+      cancelledAt: opts.cancelledAt ?? null,
+      bookingType: opts.bookingType ?? 'APPOINTMENT',
+    },
+  };
+}
+
+const CAP_RANGE = { from: '2026-02-01', to: '2026-02-28' };
+
+describe('AdminAnalyticsService — capacity by artist', () => {
+  it('(a) two sessions for the same artist in range sum correctly', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findMany.mockResolvedValue([
+      sess('a1', { artistName: 'Ada' }),
+      sess('a1', { artistName: 'Ada' }),
+    ]);
+
+    const res = await service.getCapacity(CAP_RANGE);
+
+    expect(res.artists).toHaveLength(1);
+    expect(res.artists[0]).toMatchObject({
+      artistId: 'a1',
+      artistName: 'Ada',
+      total: 2,
+      completed: 0,
+      cancelled: 0,
+      noShow: 0,
+    });
+  });
+
+  it('(b) the query filters TattooSession.scheduledDate to the tz-aware range (out-of-range rows never returned)', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findMany.mockResolvedValue([]);
+
+    await service.getCapacity(CAP_RANGE);
+
+    // Europe/Berlin, Feb 2026 = CET (UTC+1):
+    //   2026-02-01 00:00 Berlin → 2026-01-31T23:00:00Z (inclusive)
+    //   2026-03-01 00:00 Berlin → 2026-02-28T23:00:00Z (exclusive)
+    const where = prisma.tattooSession.findMany.mock.calls[0][0].where;
+    expect(where.scheduledDate.gte).toEqual(new Date('2026-01-31T23:00:00Z'));
+    expect(where.scheduledDate.lt).toEqual(new Date('2026-02-28T23:00:00Z'));
+  });
+
+  it('(c) a cancelled booking\'s session still counts in total and cancelled', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findMany.mockResolvedValue([
+      sess('a1', { status: 'CANCELLED', cancelledAt: new Date('2026-02-10T10:00:00Z') }),
+    ]);
+
+    const res = await service.getCapacity(CAP_RANGE);
+
+    expect(res.artists[0]).toMatchObject({ total: 1, cancelled: 1, noShow: 0 });
+  });
+
+  it('(d) a NO_SHOW-cancelled session counts in both cancelled and noShow', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findMany.mockResolvedValue([
+      sess('a1', {
+        status: 'CANCELLED',
+        cancelReason: 'NO_SHOW',
+        cancelledAt: new Date('2026-02-10T10:00:00Z'),
+      }),
+    ]);
+
+    const res = await service.getCapacity(CAP_RANGE);
+
+    expect(res.artists[0]).toMatchObject({ total: 1, cancelled: 1, noShow: 1 });
+  });
+
+  it('(e) artistId filter narrows the query to one artist', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findMany.mockResolvedValue([sess('a1')]);
+
+    await service.getCapacity({ ...CAP_RANGE, artistId: 'a1' });
+
+    expect(prisma.tattooSession.findMany.mock.calls[0][0].where.artistId).toBe(
+      'a1',
+    );
+  });
+
+  it('(f) an artist with zero sessions in range does not appear at all', async () => {
+    const { service, prisma } = await createService();
+    // Only a1 has sessions in range; a2 has none → a2 must be absent (not a zero row).
+    prisma.tattooSession.findMany.mockResolvedValue([sess('a1'), sess('a1')]);
+
+    const res = await service.getCapacity(CAP_RANGE);
+
+    expect(res.artists.map((a) => a.artistId)).toEqual(['a1']);
+    expect(res.artists.find((a) => a.artistId === 'a2')).toBeUndefined();
+  });
+
+  it('(g) byStation groups by stationId, with an "unassigned" bucket for null', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findMany.mockResolvedValue([
+      sess('a1', { stationId: 's1' }),
+      sess('a1', { stationId: 's1' }),
+      sess('a1', { stationId: null }),
+    ]);
+
+    const res = await service.getCapacity(CAP_RANGE);
+
+    expect(res.artists[0].total).toBe(3);
+    expect(res.artists[0].byStation).toEqual({ s1: 2, unassigned: 1 });
+  });
+
+  it('(h) includeWalkIn=false excludes WALK_IN sessions via the joined BookingRequest', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findMany.mockResolvedValue([]);
+
+    await service.getCapacity({ ...CAP_RANGE, includeWalkIn: false });
+
+    const where = prisma.tattooSession.findMany.mock.calls[0][0].where;
+    expect(where.bookingRequest).toEqual({ bookingType: { not: 'WALK_IN' } });
   });
 });
