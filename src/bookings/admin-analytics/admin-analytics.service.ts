@@ -335,19 +335,6 @@ export class AdminAnalyticsService {
     };
   }
 
-  async getSources(q: AnalyticsRangeQueryDto) {
-    const { timezone, startUtc, endUtc, rows } = await this.loadRows(q);
-
-    const counts: Record<string, number> = {};
-    for (const r of rows) counts[r.source] = (counts[r.source] ?? 0) + 1;
-
-    const items = Object.entries(counts)
-      .map(([source, count]) => ({ source, count }))
-      .sort((a, b) => b.count - a.count);
-
-    return { timezone, range: { startUtc, endUtc }, total: rows.length, items };
-  }
-
   async getUtm(q: AnalyticsUtmQueryDto) {
     const { timezone, startUtc, endUtc, rows } = await this.loadRows(q);
 
