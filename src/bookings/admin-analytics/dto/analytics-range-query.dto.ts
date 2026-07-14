@@ -24,16 +24,6 @@ export class AnalyticsRangeQueryDto {
   @IsString()
   timezone?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  artistId?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  stationId?: string;
-
   @ApiPropertyOptional({
     description: 'If true, include WALK_IN in analytics',
     default: true,
