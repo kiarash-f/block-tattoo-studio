@@ -36,6 +36,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
 import { ListBookingsQueryDto } from './dto/list-bookings.query.dto';
+import { BudgetRange as DtoBudgetRange } from '../public/dto/booking-intake.dto';
+import { mapBudgetRangeToPrisma } from '../public/public.service';
 import type { AdminJwtPayload } from '../auth/jwt.strategy';
 
 export class ScheduleTattooDto {
@@ -228,6 +230,23 @@ export class BookingsController {
       agreedPriceCents = parsed;
     }
 
+    // budgetRange arrives DTO-style (e.g. "_200_400"); Prisma uses "B200_400".
+    // Validate against the DTO enum, then map to the Prisma value. Omitted =>
+    // undefined, and createWalkIn defaults it to UNDER_200.
+    let budgetRange: ReturnType<typeof mapBudgetRangeToPrisma> | undefined;
+    if (body.budgetRange !== undefined && body.budgetRange !== '') {
+      if (
+        !Object.values(DtoBudgetRange).includes(
+          body.budgetRange as DtoBudgetRange,
+        )
+      ) {
+        throw new BadRequestException(
+          `Invalid budgetRange: ${body.budgetRange}`,
+        );
+      }
+      budgetRange = mapBudgetRangeToPrisma(body.budgetRange as DtoBudgetRange);
+    }
+
     return this.bookings.createWalkIn(
       user.sub,
       {
@@ -239,7 +258,7 @@ export class BookingsController {
           instagram: body.instagram || undefined,
         },
         description: body.description,
-        budgetRange: body.budgetRange as any || undefined,
+        budgetRange,
         tattooDate,
         artistId: body.artistId,
         stationId: body.stationId || undefined,

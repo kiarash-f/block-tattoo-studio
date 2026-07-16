@@ -16,7 +16,7 @@ import {
   BookingType as PrismaBookingType,
 } from '@prisma/client';
 
-function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
+export function mapBudgetRangeToPrisma(v: DtoBudgetRange): PrismaBudgetRange {
   switch (v) {
     case DtoBudgetRange.UNDER_200:
       return PrismaBudgetRange.UNDER_200;
