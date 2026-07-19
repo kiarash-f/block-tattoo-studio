@@ -6,9 +6,11 @@ import {
   IsInt,
   IsNotEmpty,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
+import { IsWithinDaysOf } from './date-range.validator';
 
 export class CreateGuestBookingDto {
   @ApiProperty({
@@ -42,17 +44,22 @@ export class CreateGuestBookingDto {
 
   @ApiProperty({
     example: '2026-06-07',
-    description: 'End date (inclusive) — ISO date YYYY-MM-DD',
+    description:
+      'End date (inclusive) — ISO date YYYY-MM-DD. Max 90 days after startDate.',
   })
   @IsDateString()
+  @IsWithinDaysOf('startDate', 90)
   endDate: string;
 
   @ApiProperty({
     example: 1,
-    description: 'Number of tables to reserve per day (min 1)',
+    description: 'Number of tables to reserve per day (1–20)',
   })
   @IsInt()
   @Min(1)
+  // DTO-level sanity ceiling only; real per-day capacity is enforced against
+  // StationConfig.totalTables in the service.
+  @Max(20)
   numberOfTables: number;
 
   @ApiProperty({

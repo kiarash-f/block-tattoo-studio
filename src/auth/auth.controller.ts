@@ -24,7 +24,7 @@ import { AdminLoginDto } from './dto/admin-login.dto';
 export class AuthController {
   constructor(private auth: AuthService) {}
 
-  @Throttle({ default: { limit: 10, ttl: 60 } })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('admin/login')
   @ApiOperation({
     summary: 'Admin login',

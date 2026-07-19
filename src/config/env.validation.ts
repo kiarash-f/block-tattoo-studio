@@ -39,6 +39,19 @@ export const envValidationSchema = Joi.object({
   STRIPE_SECRET_KEY: Joi.string().required(),
   STRIPE_WEBHOOK_SECRET: Joi.string().required(),
 
+  // Swagger Basic Auth — /docs is protected in production (see main.ts), so
+  // the credentials are mandatory there and optional elsewhere.
+  SWAGGER_USER: Joi.string().when('NODE_ENV', {
+    is: 'production',
+    then: Joi.required(),
+    otherwise: Joi.optional().allow(''),
+  }),
+  SWAGGER_PASSWORD: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().min(12).required(),
+    otherwise: Joi.string().optional().allow(''),
+  }),
+
   // Payments — VAT rate in basis points (1900 = 19%), snapshotted onto each Payment
   VAT_RATE_BPS: Joi.number().integer().min(0).default(1900),
 
