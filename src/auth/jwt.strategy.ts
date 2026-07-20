@@ -9,6 +9,8 @@ export type AdminJwtPayload = {
   sub: string;
   email: string;
   role: 'ADMIN';
+  /** Fingerprint of the password hash at issue time (see AuthService). */
+  pwf?: string;
 };
 
 @Injectable()
@@ -35,6 +37,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (token && (await this.auth.isRevoked(token))) {
       throw new UnauthorizedException('Token has been revoked');
     }
+    // Rejects deactivated accounts and tokens issued before the last password
+    // change, regardless of Redis availability.
+    await this.auth.assertTokenStillValid(payload);
     return payload;
   }
 }

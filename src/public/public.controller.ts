@@ -31,7 +31,7 @@ import { Throttle } from '@nestjs/throttler';
 export class PublicController {
   constructor(private readonly publicService: PublicService) {}
 
-  @Throttle({ default: { limit: 10, ttl: 60 } })
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('booking-intake')
   @ApiOperation({
     summary: 'Public booking intake',

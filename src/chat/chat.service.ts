@@ -70,7 +70,13 @@ export class ChatService {
 
   constructor(private readonly config: ConfigService) {
     const apiKey = config.get<string>('ANTHROPIC_API_KEY') ?? '';
-    this.anthropic = new Anthropic({ apiKey });
+    // Bound the blast radius of a slow/unavailable API: without this the SDK
+    // defaults to a 10-minute timeout, holding the public request open.
+    this.anthropic = new Anthropic({
+      apiKey,
+      timeout: 15_000,
+      maxRetries: 2,
+    });
   }
 
   async chat(dto: ChatRequestDto): Promise<{ reply: string }> {

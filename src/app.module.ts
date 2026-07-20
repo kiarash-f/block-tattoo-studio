@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { SentryGlobalFilter } from '@sentry/nestjs/setup';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
 import { ScheduleModule } from '@nestjs/schedule';
 import { createKeyv } from '@keyv/redis';
@@ -43,10 +43,14 @@ import { CampaignsModule } from './campaigns/campaigns.module';
       validationSchema: envValidationSchema,
     }),
     ScheduleModule.forRoot(),
+    // ttl is MILLISECONDS in @nestjs/throttler v6. Global safety net of
+    // 100 req/min per IP; sensitive routes override with tighter @Throttle
+    // limits (login/intake 10/min, chat 20/min). Enforced by the APP_GUARD
+    // ThrottlerGuard registered in `providers` below.
     ThrottlerModule.forRoot([
       {
-        ttl: 60,
-        limit: 20,
+        ttl: 60_000,
+        limit: 100,
       },
     ]),
     CacheModule.registerAsync({
@@ -106,6 +110,10 @@ import { CampaignsModule } from './campaigns/campaigns.module';
     {
       provide: APP_FILTER,
       useClass: SentryGlobalFilter,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
     AppService,
   ],

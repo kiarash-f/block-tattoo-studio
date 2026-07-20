@@ -5,6 +5,34 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 import helmet from 'helmet';
+import * as crypto from 'crypto';
+import type { NextFunction, Request, Response } from 'express';
+
+/**
+ * Minimal HTTP Basic Auth for the Swagger routes in production. Compares a
+ * hash of the presented credentials against a hash of the expected ones with
+ * timingSafeEqual (hashing first gives equal-length buffers, which
+ * timingSafeEqual requires, and avoids length leaks).
+ */
+function swaggerBasicAuth(user: string, password: string) {
+  const expected = crypto
+    .createHash('sha256')
+    .update(`${user}:${password}`)
+    .digest();
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const [scheme, encoded] = (req.headers.authorization ?? '').split(' ');
+    if (scheme === 'Basic' && encoded) {
+      const presented = crypto
+        .createHash('sha256')
+        .update(Buffer.from(encoded, 'base64'))
+        .digest();
+      if (crypto.timingSafeEqual(presented, expected)) return next();
+    }
+    res.setHeader('WWW-Authenticate', 'Basic realm="docs"');
+    res.status(401).send('Authentication required');
+  };
+}
 
 async function bootstrap() {
   // rawBody: true makes req.rawBody (Buffer) available — required for
@@ -47,6 +75,19 @@ async function bootstrap() {
       'admin-jwt',
     )
     .build();
+
+  // In production, /docs (UI + JSON/YAML spec) sits behind Basic Auth so the
+  // full admin API surface isn't public. Credentials are validated as required
+  // for production in env.validation.ts.
+  if (process.env.NODE_ENV === 'production') {
+    app.use(
+      ['/docs', '/docs-json', '/docs-yaml'],
+      swaggerBasicAuth(
+        process.env.SWAGGER_USER ?? '',
+        process.env.SWAGGER_PASSWORD ?? '',
+      ),
+    );
+  }
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document, {

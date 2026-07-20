@@ -11,7 +11,7 @@ export class ChatController {
 
   @Post()
   @HttpCode(200)
-  @Throttle({ default: { limit: 20, ttl: 60 } })
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Send a message to the studio AI assistant',
     description:
