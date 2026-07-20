@@ -102,7 +102,7 @@ export class GuestArtistBookingsService {
     return {
       startDate: startDateStr,
       endDate: endDateStr,
-      pricePerDay: config.pricePerDay,
+      pricePerDayCents: config.pricePerDayCents,
       monthlyDiscountPercent: config.monthlyDiscountPercent,
       days,
     };
@@ -125,18 +125,14 @@ export class GuestArtistBookingsService {
     const config = await this.configSvc.get();
 
     // ── Pricing ───────────────────────────────────────────────────────────────
+    // Integer cents throughout; the discount multiplication is the single
+    // point where a fraction can appear, so it is the single rounding point.
     const numberOfDays = countDays(startDate, endDate);
     const applyDiscount = numberOfDays >= 30;
     const discountPercent = applyDiscount ? config.monthlyDiscountPercent : 0;
-    const multiplier = 1 - discountPercent / 100;
-    const totalPrice = parseFloat(
-      (
-        config.pricePerDay *
-        dto.numberOfTables *
-        numberOfDays *
-        multiplier
-      ).toFixed(2),
-    );
+    const baseCents =
+      config.pricePerDayCents * dto.numberOfTables * numberOfDays;
+    const totalPriceCents = Math.round(baseCents * (1 - discountPercent / 100));
 
     // ── Availability check + booking creation in a single transaction ─────────
     const booking = await this.prisma.$transaction(async (tx) => {
@@ -176,7 +172,7 @@ export class GuestArtistBookingsService {
           startDate,
           endDate,
           numberOfTables: dto.numberOfTables,
-          totalPrice,
+          totalPriceCents,
           discountApplied: discountPercent,
           acknowledgment: dto.acknowledgment,
           status: GuestBookingStatus.PENDING_PAYMENT,
@@ -194,7 +190,7 @@ export class GuestArtistBookingsService {
       paymentSource: PaymentSource.GUEST_TABLE,
       targetId: booking.id,
       vatRateBps: this.config.get<number>('VAT_RATE_BPS', 1900),
-      amountCents: Math.round(totalPrice * 100), // guest total stays Float in DB; Stripe gets cents
+      amountCents: totalPriceCents,
       email: dto.email,
       productName: 'Guest Artist Table Booking',
       productDescription:
@@ -287,7 +283,7 @@ export class GuestArtistBookingsService {
       throw new BadRequestException('endDate must be on or after startDate');
     }
 
-    let totalPrice = existing.totalPrice;
+    let totalPriceCents = existing.totalPriceCents;
     let discountApplied = existing.discountApplied;
 
     if (needsRecalc) {
@@ -296,14 +292,8 @@ export class GuestArtistBookingsService {
       const applyDiscount = numberOfDays >= 30;
       const discountPercent = applyDiscount ? config.monthlyDiscountPercent : 0;
       discountApplied = discountPercent;
-      totalPrice = parseFloat(
-        (
-          config.pricePerDay *
-          numberOfTables *
-          numberOfDays *
-          (1 - discountPercent / 100)
-        ).toFixed(2),
-      );
+      const baseCents = config.pricePerDayCents * numberOfTables * numberOfDays;
+      totalPriceCents = Math.round(baseCents * (1 - discountPercent / 100));
     }
 
     return this.prisma.guestArtistBooking.update({
@@ -316,7 +306,7 @@ export class GuestArtistBookingsService {
         ...(dto.startDate !== undefined ? { startDate } : {}),
         ...(dto.endDate !== undefined ? { endDate } : {}),
         ...(dto.numberOfTables !== undefined ? { numberOfTables } : {}),
-        ...(needsRecalc ? { totalPrice, discountApplied } : {}),
+        ...(needsRecalc ? { totalPriceCents, discountApplied } : {}),
       },
     });
   }

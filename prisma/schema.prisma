@@ -564,7 +564,7 @@ model ConsultSlot {
 model StationConfig {
   id                     String   @id @default(cuid())
   totalTables            Int
-  pricePerDay            Float
+  pricePerDayCents       Int
   monthlyDiscountPercent Float    @default(10)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -578,7 +578,7 @@ model GuestArtistBooking {
   startDate        DateTime           @db.Date
   endDate          DateTime           @db.Date
   numberOfTables   Int
-  totalPrice       Float
+  totalPriceCents  Int
   discountApplied  Float
   acknowledgment   Boolean
   stripeSessionId  String?

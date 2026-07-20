@@ -2,11 +2,16 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { VoucherStatus, VoucherType } from '@prisma/client';
+import * as Sentry from '@sentry/nestjs';
+import { VoucherDelivery, VoucherStatus, VoucherType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { VoucherSalesService } from './voucher-sales.service';
+
+jest.mock('@sentry/nestjs', () => ({ captureException: jest.fn() }));
 
 async function createService() {
   const prisma = {
@@ -18,17 +23,22 @@ async function createService() {
     },
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   };
+  const email = {
+    sendVoucherPurchase: jest.fn().mockResolvedValue(undefined),
+  };
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       VoucherSalesService,
       { provide: PrismaService, useValue: prisma },
+      { provide: EmailService, useValue: email },
     ],
   }).compile();
 
   return {
     service: module.get<VoucherSalesService>(VoucherSalesService),
     prisma,
+    email,
   };
 }
 
@@ -103,5 +113,80 @@ describe('VoucherSalesService — redeem', () => {
     await expect(service.redeem(CODE, 'admin_1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe('VoucherSalesService — resendVoucherEmail (M5)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  function validSale() {
+    return {
+      id: 'vs_1',
+      code: CODE,
+      status: VoucherStatus.VALID,
+      buyerEmail: 'buyer@example.com',
+      buyerName: 'Buyer',
+      grossCents: 10000,
+      delivery: VoucherDelivery.EMAIL,
+      product: { name: 'Full Day' },
+    };
+  }
+
+  it('re-sends the purchase email for a VALID voucher', async () => {
+    const { service, prisma, email } = await createService();
+    prisma.voucherSale.findUnique.mockResolvedValue(validSale());
+
+    const result = await service.resendVoucherEmail(CODE);
+
+    expect(email.sendVoucherPurchase).toHaveBeenCalledWith({
+      to: 'buyer@example.com',
+      buyerName: 'Buyer',
+      productName: 'Full Day',
+      code: CODE,
+      grossCents: 10000,
+      delivery: VoucherDelivery.EMAIL,
+    });
+    expect(result).toEqual({
+      sent: true,
+      saleId: 'vs_1',
+      to: 'buyer@example.com',
+    });
+  });
+
+  it.each([
+    VoucherStatus.PENDING_PAYMENT,
+    VoucherStatus.REDEEMED,
+    VoucherStatus.CANCELLED,
+  ])('rejects resending for a %s voucher and sends nothing', async (status) => {
+    const { service, prisma, email } = await createService();
+    prisma.voucherSale.findUnique.mockResolvedValue({
+      ...validSale(),
+      status,
+    });
+
+    await expect(service.resendVoucherEmail(CODE)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(email.sendVoucherPurchase).not.toHaveBeenCalled();
+  });
+
+  it('404s for an unknown code', async () => {
+    const { service, prisma } = await createService();
+    prisma.voucherSale.findUnique.mockResolvedValue(null);
+
+    await expect(service.resendVoucherEmail(CODE)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('reports a send failure to Sentry and returns 503', async () => {
+    const { service, prisma, email } = await createService();
+    prisma.voucherSale.findUnique.mockResolvedValue(validSale());
+    email.sendVoucherPurchase.mockRejectedValue(new Error('resend down'));
+
+    await expect(service.resendVoucherEmail(CODE)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(Sentry.captureException).toHaveBeenCalledTimes(1);
   });
 });
