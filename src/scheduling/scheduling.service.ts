@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { BookingStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { reportEmailFailure } from '../common/report-email-failure';
 import { EmailService } from '../email/email.service';
 import { CreateConsultSlotDto } from './dto/create-consult-slot.dto';
 import { AssignConsultSlotDto } from './dto/assign-consult-slot.dto';
@@ -164,7 +165,11 @@ export class SchedulingService {
             `${booking.client.firstName} ${booking.client.lastName}`.trim(),
           consultDate: slot.date,
         })
-        .catch(() => void 0);
+        .catch(
+          reportEmailFailure('consult confirmation email', {
+            bookingRequestId: bookingId,
+          }),
+        );
     }
 
     return updated;

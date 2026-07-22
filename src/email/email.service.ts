@@ -123,12 +123,12 @@ export class EmailService {
   private async send(to: string, subject: string, html: string): Promise<void> {
     if (!this.resend) return;
 
-    try {
-      await this.resend.emails.send({ from: this.from, to, subject, html });
-      this.logger.log(`Email sent: "${subject}" → ${to}`);
-    } catch (err) {
-      this.logger.error(`Failed to send email "${subject}" → ${to}`, err);
-    }
+    // Intentionally does NOT swallow: the promise rejects on failure so callers
+    // decide the outcome — fire-and-forget senders report via
+    // reportEmailFailure (M14); the awaited resend path surfaces a 503. A
+    // swallowed error here would make every downstream .catch dead code.
+    await this.resend.emails.send({ from: this.from, to, subject, html });
+    this.logger.log(`Email sent: "${subject}" → ${to}`);
   }
 
   async sendBookingConfirmation(data: BookingConfirmationData): Promise<void> {

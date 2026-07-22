@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { reportEmailFailure } from '../common/report-email-failure';
 import {
   AssignmentRole,
   BookingStatus,
@@ -242,7 +243,11 @@ export class BookingsService {
           clientName:
             `${updated.client.firstName} ${updated.client.lastName}`.trim(),
         })
-        .catch(() => void 0);
+        .catch(
+          reportEmailFailure('booking rejected email', {
+            bookingRequestId: updated.id,
+          }),
+        );
     }
     return updated;
   }
@@ -328,7 +333,11 @@ export class BookingsService {
           sessionDate: data.scheduledDate,
           artistName: artist.displayName,
         })
-        .catch(() => void 0);
+        .catch(
+          reportEmailFailure('session reminder email', {
+            bookingRequestId,
+          }),
+        );
     }
     return session;
   }
@@ -475,7 +484,11 @@ export class BookingsService {
             `${result.client.firstName} ${result.client.lastName}`.trim(),
           bookingRequestId: result.booking.id,
         })
-        .catch(() => void 0);
+        .catch(
+          reportEmailFailure('walk-in booking confirmation email', {
+            bookingRequestId: result.booking.id,
+          }),
+        );
     }
 
     return {

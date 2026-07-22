@@ -127,3 +127,34 @@ export function getUtcRangeForZonedDate(
   const { startUtc, endUtc } = getUtcRangeForPeriod(dateStr, 'day', timeZone);
   return { startUtc, endUtc };
 }
+
+/** The studio's operating timezone — the single day-boundary convention (M6). */
+export const STUDIO_TIMEZONE = 'Europe/Berlin';
+
+/**
+ * Inclusive local-date range [from..to] (both YYYY-MM-DD) in timeZone,
+ * converted to UTC [startUtc, endUtcExclusive). `endUtc` is the start of the
+ * day after `to`, so the whole `to` day is included. Same Berlin-day convention
+ * as admin revenue analytics — use this for every date-range filter (M6).
+ */
+export function getUtcRangeForZonedDateRange(
+  from: string,
+  to: string,
+  timeZone: string,
+): { startUtc: Date; endUtc: Date } {
+  const startUtc = getUtcRangeForZonedDate(from, timeZone).startUtc;
+  const endUtc = getUtcRangeForZonedDate(to, timeZone).endUtc;
+  return { startUtc, endUtc };
+}
+
+/** The YYYY-MM-DD calendar date of `instant` as seen in timeZone. */
+export function getZonedYmd(instant: Date, timeZone: string): string {
+  const z = getZonedParts(instant, timeZone);
+  return ymdToString(z.year, z.month, z.day);
+}
+
+/** Day of week (0=Sun … 6=Sat) for a YYYY-MM-DD calendar date. */
+export function dayOfWeekForYmd(ymd: string): number {
+  const { y, m, d } = parseYmd(ymd);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}

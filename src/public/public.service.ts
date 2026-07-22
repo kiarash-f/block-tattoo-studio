@@ -1,6 +1,12 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
+import { reportEmailFailure } from '../common/report-email-failure';
+import {
+  STUDIO_TIMEZONE,
+  getZonedYmd,
+  dayOfWeekForYmd,
+} from '../common/time/zoned-date-range';
 import { EmailService } from '../email/email.service';
 import {
   CreateBookingIntakeDto,
@@ -175,14 +181,16 @@ export class PublicService {
       if (Number.isNaN(consultDate.getTime())) {
         throw new BadRequestException('Invalid consultDate');
       }
-      // Cannot book a consult in the past
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (consultDate < today) {
+      // Past-date + Sunday checks on the Berlin calendar day, so the boundary
+      // matches analytics and the payments list rather than the server's local
+      // day (M6). Comparing YYYY-MM-DD strings is a safe calendar comparison.
+      const consultYmd = getZonedYmd(consultDate, STUDIO_TIMEZONE);
+      const todayYmd = getZonedYmd(new Date(), STUDIO_TIMEZONE);
+      if (consultYmd < todayYmd) {
         throw new BadRequestException('consultDate cannot be in the past');
       }
       // Sundays are closed (0 = Sunday)
-      if (consultDate.getDay() === 0) {
+      if (dayOfWeekForYmd(consultYmd) === 0) {
         throw new BadRequestException('Studio is closed on Sundays');
       }
 
@@ -277,7 +285,11 @@ export class PublicService {
           clientName: result.clientName,
           bookingRequestId: result.bookingRequestId,
         })
-        .catch(() => void 0);
+        .catch(
+          reportEmailFailure('intake booking confirmation email', {
+            bookingRequestId: result.bookingRequestId,
+          }),
+        );
     }
 
     return {

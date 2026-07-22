@@ -466,6 +466,59 @@ describe('PaymentsService — list context normalization', () => {
 });
 
 /**
+ * M6 — the payments list filters `paidAt` on Berlin calendar days, the same
+ * convention revenue analytics uses, so the same from/to returns the same rows
+ * in both admin views. The expected UTC boundary instants below are derived by
+ * hand from "Berlin local midnight" (NOT from the helper under test), so a drift
+ * in the Berlin-day math surfaces here instead of being mirrored. Both a summer
+ * range and a DST fall-back range are covered so the math can't silently shift
+ * by a day across a transition.
+ */
+describe('PaymentsService — list Berlin-day boundary (M6)', () => {
+  async function paidAtBoundsFor(from: string, to: string) {
+    const { service, prisma } = await createService();
+    prisma.payment.count.mockResolvedValue(0);
+    prisma.payment.findMany.mockResolvedValue([]);
+    await service.list({ from, to });
+    const where = prisma.payment.findMany.mock.calls[0][0].where as {
+      paidAt: { gte: Date; lt: Date };
+    };
+    return where.paidAt;
+  }
+
+  it('(a) summer range: 23:30 Berlin on the last day is included, 00:30 next day excluded', async () => {
+    const paidAt = await paidAtBoundsFor('2026-06-01', '2026-06-30');
+
+    // Berlin is UTC+2 in summer.
+    expect(paidAt.gte.toISOString()).toBe('2026-05-31T22:00:00.000Z');
+    expect(paidAt.lt.toISOString()).toBe('2026-06-30T22:00:00.000Z');
+
+    const inRange = (d: string) =>
+      paidAt.gte <= new Date(d) && new Date(d) < paidAt.lt;
+    // 23:30 Berlin on Jun 30 (last day) = 21:30Z → still June in Berlin → included
+    expect(inRange('2026-06-30T21:30:00.000Z')).toBe(true);
+    // 00:30 Berlin on Jul 1 = 22:30Z Jun 30 → July in Berlin → excluded
+    expect(inRange('2026-06-30T22:30:00.000Z')).toBe(false);
+  });
+
+  it('(b) DST fall-back range: Berlin-day math does not drift by a day', async () => {
+    // Clocks go back on 2026-10-25. Oct 1 start is still summer (UTC+2); the
+    // exclusive end (Oct 26 start) is winter (UTC+1) — a 1h, not 2h, offset.
+    const paidAt = await paidAtBoundsFor('2026-10-01', '2026-10-25');
+
+    expect(paidAt.gte.toISOString()).toBe('2026-09-30T22:00:00.000Z');
+    expect(paidAt.lt.toISOString()).toBe('2026-10-25T23:00:00.000Z');
+
+    const inRange = (d: string) =>
+      paidAt.gte <= new Date(d) && new Date(d) < paidAt.lt;
+    // 23:30 Berlin on Oct 25 (winter, last day) = 22:30Z → included
+    expect(inRange('2026-10-25T22:30:00.000Z')).toBe(true);
+    // 00:30 Berlin on Oct 26 = 23:30Z Oct 25 → excluded
+    expect(inRange('2026-10-25T23:30:00.000Z')).toBe(false);
+  });
+});
+
+/**
  * cancelPayment is now a conditional updateMany guarded on status = PAID (M1),
  * so these mocks drive `updateMany.count`: 1 = this call won the flip, 0 = it
  * lost (or the row was never PAID) and the service re-reads to explain why.
