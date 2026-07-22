@@ -593,3 +593,61 @@ describe('AdminAnalyticsService — getTimeseries', () => {
     });
   });
 });
+
+/**
+ * M16 — analytics reject over-long ranges before loading rows or building
+ * buckets. The cap is per granularity (≤ 366 buckets): a day-granular range of
+ * 367 days is refused with 400, but 366 is allowed. Coarser granularities cap
+ * on their own bucket count, so a multi-year month-granular range (well over
+ * 366 days but few buckets) is still allowed.
+ */
+describe('AdminAnalyticsService — range cap (M16)', () => {
+  it('(a) day granularity: 366 buckets passes, 367 throws 400', async () => {
+    const { service, prisma } = await createService();
+    prisma.bookingRequest.findMany.mockResolvedValue([]);
+
+    // 2026-01-01 .. 2027-01-01 inclusive = 366 daily buckets → allowed.
+    await expect(
+      service.getTimeseries({
+        from: '2026-01-01',
+        to: '2027-01-01',
+        granularity: 'day',
+      }),
+    ).resolves.toBeDefined();
+
+    // One day more = 367 buckets → rejected before any row load.
+    prisma.bookingRequest.findMany.mockClear();
+    await expect(
+      service.getTimeseries({
+        from: '2026-01-01',
+        to: '2027-01-02',
+        granularity: 'day',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.bookingRequest.findMany).not.toHaveBeenCalled();
+  });
+
+  it('(b) coarser granularity allows a span longer than 366 days (per-granularity cap)', async () => {
+    const { service, prisma } = await createService();
+    prisma.bookingRequest.findMany.mockResolvedValue([]);
+
+    // ~4 years — far beyond a 366-day span, but only ~49 monthly buckets.
+    await expect(
+      service.getTimeseries({
+        from: '2026-01-01',
+        to: '2030-01-01',
+        granularity: 'month',
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it('(c) aggregate endpoints cap at a 366-day span', async () => {
+    const { service, prisma } = await createService();
+    prisma.payment.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.getRevenueOverview({ from: '2026-01-01', to: '2027-01-02' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.payment.findMany).not.toHaveBeenCalled();
+  });
+});

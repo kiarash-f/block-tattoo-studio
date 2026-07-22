@@ -96,6 +96,10 @@ type TimeseriesBucket = {
 
 @Injectable()
 export class AdminAnalyticsService {
+  // Max buckets any timeseries may produce; also the day-span cap for aggregate
+  // endpoints (M16). 366 = one leap year of daily buckets.
+  private static readonly MAX_BUCKETS = 366;
+
   constructor(private readonly prisma: PrismaService) {}
 
   private tzOrDefault(tz?: string) {
@@ -146,6 +150,52 @@ export class AdminAnalyticsService {
     return { startUtc, endUtc };
   }
 
+  /**
+   * Reject ranges that would produce more than MAX_BUCKETS buckets at the given
+   * granularity (M16). Aggregate endpoints pass 'day', so they cap at 366 days;
+   * timeseries endpoints cap at 366 buckets of their own granularity. Prevents
+   * a stray `from=0001-01-01&to=9999-12-31` from building millions of buckets.
+   */
+  private assertRangeWithinCap(
+    from: string,
+    to: string,
+    tz: string,
+    granularity: 'day' | 'week' | 'month' = 'day',
+  ): void {
+    const fromStart = DateTime.fromISO(from, { zone: tz }).startOf('day');
+    const toStart = DateTime.fromISO(to, { zone: tz }).startOf('day');
+
+    if (!fromStart.isValid || !toStart.isValid) {
+      throw new BadRequestException(
+        `Invalid from/to or timezone: from=${from}, to=${to}, tz=${tz}`,
+      );
+    }
+    if (fromStart > toStart) {
+      throw new BadRequestException(
+        `Invalid range: from must be <= to (from=${from}, to=${to})`,
+      );
+    }
+
+    let buckets: number;
+    if (granularity === 'month') {
+      const a = fromStart.startOf('month');
+      const b = toStart.startOf('month');
+      buckets = Math.floor(b.diff(a, 'months').months) + 1;
+    } else if (granularity === 'week') {
+      const a = fromStart.startOf('week').set({ weekday: 1 }).startOf('day');
+      const b = toStart.startOf('week').set({ weekday: 1 }).startOf('day');
+      buckets = Math.floor(b.diff(a, 'weeks').weeks) + 1;
+    } else {
+      buckets = Math.floor(toStart.diff(fromStart, 'days').days) + 1;
+    }
+
+    if (buckets > AdminAnalyticsService.MAX_BUCKETS) {
+      throw new BadRequestException(
+        `Date range too large for granularity '${granularity}': ${buckets} buckets exceed the maximum of ${AdminAnalyticsService.MAX_BUCKETS}. Narrow the range or use a coarser granularity.`,
+      );
+    }
+  }
+
   private async loadRows(q: AnalyticsRangeQueryDto): Promise<{
     timezone: string;
     startUtc: Date;
@@ -190,6 +240,7 @@ export class AdminAnalyticsService {
   }
 
   async getOverview(q: AnalyticsRangeQueryDto) {
+    this.assertRangeWithinCap(q.from, q.to, this.tzOrDefault(q.timezone));
     const { timezone, startUtc, endUtc, rows } = await this.loadRows(q);
 
     const total = rows.length;
@@ -238,6 +289,7 @@ export class AdminAnalyticsService {
    */
   async getCapacity(q: AnalyticsCapacityQueryDto) {
     const timezone = this.tzOrDefault(q.timezone);
+    this.assertRangeWithinCap(q.from, q.to, timezone);
     const { startUtc, endUtc } = this.getUtcRangeForZonedDateRange(
       q.from,
       q.to,
@@ -364,6 +416,7 @@ export class AdminAnalyticsService {
    */
   async getRevenueOverview(q: AnalyticsRangeQueryDto) {
     const timezone = this.tzOrDefault(q.timezone);
+    this.assertRangeWithinCap(q.from, q.to, timezone);
     const { startUtc, endUtc } = this.getUtcRangeForZonedDateRange(
       q.from,
       q.to,
@@ -412,6 +465,7 @@ export class AdminAnalyticsService {
    */
   async getRevenueTimeseries(q: AnalyticsTimeseriesQueryDto) {
     const timezone = this.tzOrDefault(q.timezone);
+    this.assertRangeWithinCap(q.from, q.to, timezone, q.granularity);
     const { startUtc, endUtc } = this.getUtcRangeForZonedDateRange(
       q.from,
       q.to,
@@ -457,6 +511,7 @@ export class AdminAnalyticsService {
   }
 
   async getUtm(q: AnalyticsUtmQueryDto) {
+    this.assertRangeWithinCap(q.from, q.to, this.tzOrDefault(q.timezone));
     const { timezone, startUtc, endUtc, rows } = await this.loadRows(q);
 
     const dim = q.dimension;
@@ -493,6 +548,12 @@ export class AdminAnalyticsService {
   }
 
   async getTimeseries(q: AnalyticsTimeseriesQueryDto) {
+    this.assertRangeWithinCap(
+      q.from,
+      q.to,
+      this.tzOrDefault(q.timezone),
+      q.granularity,
+    );
     const { timezone, startUtc, endUtc, rows } = await this.loadRows(q);
 
     const buckets = this.buildBuckets(q.from, q.to, q.granularity, timezone);

@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import { requestLoggingMiddleware } from './common/middleware/request-logging.middleware';
 import helmet from 'helmet';
 import * as crypto from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
@@ -38,6 +39,14 @@ async function bootstrap() {
   // rawBody: true makes req.rawBody (Buffer) available — required for
   // Shopify webhook HMAC-SHA256 verification at POST /webhooks/shopify/payment
   const app = await NestFactory.create(AppModule, { rawBody: true });
+
+  // Run OnModuleDestroy hooks (Prisma $disconnect, etc.) on SIGTERM/SIGINT so
+  // deploys don't sever in-flight requests — including payment webhooks (M9).
+  app.enableShutdownHooks();
+
+  // Correlation id + access logging; first so req.requestId is set before any
+  // route handler or exception filter runs (M17).
+  app.use(requestLoggingMiddleware);
 
   const allowedOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
     .split(',')

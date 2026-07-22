@@ -14,6 +14,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { ListPaymentsQueryDto } from './dto/list-payments.query.dto';
+import {
+  STUDIO_TIMEZONE,
+  getUtcRangeForZonedDate,
+} from '../common/time/zoned-date-range';
 
 /**
  * Input for recording a realized payment. Used by BOTH paths:
@@ -488,17 +492,22 @@ export class PaymentsService {
     if (query.status) where.status = query.status;
 
     if (query.from || query.to) {
+      // Berlin-day bounds, matching revenue analytics so the same from/to
+      // returns the same rows in both admin views (M6). `to` is fully included
+      // via the exclusive next-day-start end. YYYY-MM-DD is enforced by the DTO.
       const paidAt: Prisma.DateTimeFilter = {};
       if (query.from) {
-        const f = new Date(query.from);
-        f.setUTCHours(0, 0, 0, 0);
-        paidAt.gte = f;
+        // slice(0,10): DTO allows full ISO; the filter is a calendar-day bound.
+        paidAt.gte = getUtcRangeForZonedDate(
+          query.from.slice(0, 10),
+          STUDIO_TIMEZONE,
+        ).startUtc;
       }
       if (query.to) {
-        const t = new Date(query.to);
-        t.setUTCHours(0, 0, 0, 0);
-        t.setUTCDate(t.getUTCDate() + 1); // exclusive end → `to` day fully included
-        paidAt.lt = t;
+        paidAt.lt = getUtcRangeForZonedDate(
+          query.to.slice(0, 10),
+          STUDIO_TIMEZONE,
+        ).endUtc;
       }
       where.paidAt = paidAt;
     }
