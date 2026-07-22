@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { PaymentMethod, PaymentSource, PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from './payments.service';
+import { InvoiceService } from './invoice.service';
 
 /**
  * Builds a PaymentsService with mocked Prisma + Config.
@@ -37,8 +38,23 @@ async function createService(defaultVatRateBps = 1900) {
     },
     bookingRequest: { findUnique: jest.fn() },
     guestArtistBooking: { findUnique: jest.fn() },
-    // Execute the [count, findMany] tuple like a real interactive transaction.
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
+    voucherSale: { findUnique: jest.fn() },
+    // Invoice write + gap-free counter allocation, exercised inside recordPayment.
+    invoice: {
+      create: jest.fn(({ data }: { data: Record<string, unknown> }) =>
+        Promise.resolve({ id: 'inv_test', ...data }),
+      ),
+      findUnique: jest.fn(),
+    },
+    // $queryRaw backs the InvoiceCounter INSERT ... ON CONFLICT ... RETURNING.
+    $queryRaw: jest.fn(() => Promise.resolve([{ lastNumber: 1 }])),
+    // Handle BOTH forms: the [count, findMany] tuple (list) and the interactive
+    // callback (recordPayment wraps payment + invoice in one transaction).
+    $transaction: jest.fn((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => unknown)(prisma)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
   };
   const config = {
     get: jest.fn((key: string, def?: unknown) =>
@@ -49,6 +65,7 @@ async function createService(defaultVatRateBps = 1900) {
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       PaymentsService,
+      InvoiceService,
       { provide: PrismaService, useValue: prisma },
       { provide: ConfigService, useValue: config },
     ],
@@ -519,29 +536,20 @@ describe('PaymentsService — list Berlin-day boundary (M6)', () => {
 });
 
 /**
- * cancelPayment is now a conditional updateMany guarded on status = PAID (M1),
- * so these mocks drive `updateMany.count`: 1 = this call won the flip, 0 = it
- * lost (or the row was never PAID) and the service re-reads to explain why.
+ * cancelPayment is a conditional updateMany guarded on status = PAID (M1), so
+ * these mocks drive `updateMany.count`: 1 = this call won the flip, 0 = it lost
+ * (or the row was never PAID) and the service re-reads to explain why. The
+ * cancellation reason goes in its own set-once `cancellationReason` field — the
+ * original `note` is never read or rewritten (GoBD §8.3).
  */
 describe('PaymentsService — cancelPayment', () => {
-  /** Mock a payment that exists with `status`, and a flip that succeeds. */
-  function arrangeWin(
-    prisma: MockPrisma,
-    row: { id?: string; status?: PaymentStatus; note?: string | null } = {},
-  ) {
-    const full = {
-      id: 'p1',
-      status: PaymentStatus.PAID,
-      note: null,
-      ...row,
-    };
-    prisma.payment.findUnique.mockResolvedValue(full);
+  /** Mock a flip that succeeds (count = 1). */
+  function arrangeWin(prisma: MockPrisma) {
     prisma.payment.updateMany.mockResolvedValue({ count: 1 });
     prisma.payment.findUniqueOrThrow.mockResolvedValue({
-      ...full,
+      id: 'p1',
       status: PaymentStatus.CANCELLED,
     });
-    return full;
   }
 
   /** Mock a flip that matched nothing, with `current` as the re-read state. */
@@ -549,10 +557,8 @@ describe('PaymentsService — cancelPayment', () => {
     prisma: MockPrisma,
     current: { status: PaymentStatus } | null,
   ) {
-    prisma.payment.findUnique
-      .mockResolvedValueOnce({ id: 'p1', note: null })
-      .mockResolvedValueOnce(current);
     prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+    prisma.payment.findUnique.mockResolvedValue(current);
   }
 
   it('(a) flips PAID → CANCELLED and stamps the audit fields', async () => {
@@ -568,24 +574,28 @@ describe('PaymentsService — cancelPayment', () => {
     expect(call.data.status).toBe(PaymentStatus.CANCELLED);
     expect(call.data.cancelledByAdminId).toBe('admin_1');
     expect(call.data.cancelledAt).toBeInstanceOf(Date);
-    expect(call.data.note).toBe('Cancelled: Refunded in cash');
+    // Reason in its own field; note is never touched by the update.
+    expect(call.data.cancellationReason).toBe('Refunded in cash');
+    expect(call.data.note).toBeUndefined();
     expect(res.status).toBe(PaymentStatus.CANCELLED);
   });
 
-  it('appends the reason to an existing note', async () => {
+  it('records the reason in cancellationReason, never touching note', async () => {
     const { service, prisma } = await createService();
-    arrangeWin(prisma, { note: 'cash at desk' });
+    arrangeWin(prisma);
     await service.cancelPayment('p1', 'admin_1', 'refunded');
-    expect(prisma.payment.updateMany.mock.calls[0][0].data.note).toBe(
-      'cash at desk | Cancelled: refunded',
-    );
+    const data = prisma.payment.updateMany.mock.calls[0][0].data;
+    expect(data.cancellationReason).toBe('refunded');
+    expect(data.note).toBeUndefined();
   });
 
-  it('leaves the note unchanged when no reason is given', async () => {
+  it('sets cancellationReason to null when no reason is given', async () => {
     const { service, prisma } = await createService();
-    arrangeWin(prisma, { note: 'cash' });
+    arrangeWin(prisma);
     await service.cancelPayment('p1', 'admin_1');
-    expect(prisma.payment.updateMany.mock.calls[0][0].data.note).toBe('cash');
+    const data = prisma.payment.updateMany.mock.calls[0][0].data;
+    expect(data.cancellationReason).toBeNull();
+    expect(data.note).toBeUndefined();
   });
 
   it('(b) reports a conflict when the payment is already CANCELLED', async () => {
@@ -607,13 +617,15 @@ describe('PaymentsService — cancelPayment', () => {
     );
   });
 
-  it('404s an unknown payment', async () => {
+  it('404s an unknown payment (flip matches nothing, re-read finds no row)', async () => {
     const { service, prisma } = await createService();
-    prisma.payment.findUnique.mockResolvedValue(null);
+    // No pre-read guard anymore: the conditional flip runs, matches 0 rows, and
+    // the re-read returns null → 404.
+    arrangeLoss(prisma, null);
     await expect(
       service.cancelPayment('nope', 'admin_1'),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    expect(prisma.payment.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it('404s when the row disappears between the flip and the re-read', async () => {
@@ -650,5 +662,58 @@ describe('PaymentsService — cancelled excluded from booking balance', () => {
     expect(prisma.payment.aggregate.mock.calls[0][0].where.status).toBe(
       PaymentStatus.PAID,
     );
+  });
+});
+
+describe('PaymentsService — cash paidAt sanity bounds (§8.3b)', () => {
+  // Config default for PAYMENTS_GO_LIVE_DATE is 2026-07-22.
+  const tattooCash = (paidAt?: string) => ({
+    source: PaymentSource.TATTOO,
+    grossCents: 12_000,
+    bookingRequestId: 'br_1',
+    ...(paidAt ? { paidAt } : {}),
+  });
+
+  it('rejects a paidAt in the future', async () => {
+    const { service, prisma } = await createService();
+    prisma.bookingRequest.findUnique.mockResolvedValue({ id: 'br_1' });
+    const future = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    await expect(
+      service.createCashPayment(tattooCash(future) as never, 'admin_1'),
+    ).rejects.toThrow(/future/i);
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a paidAt before go-live', async () => {
+    const { service, prisma } = await createService();
+    prisma.bookingRequest.findUnique.mockResolvedValue({ id: 'br_1' });
+
+    await expect(
+      service.createCashPayment(
+        tattooCash('2020-01-01T00:00:00.000Z') as never,
+        'admin_1',
+      ),
+    ).rejects.toThrow(/go-live/i);
+    expect(prisma.payment.create).not.toHaveBeenCalled();
+  });
+
+  it('records normally when paidAt is omitted (no bounds applied)', async () => {
+    const { service, prisma } = await createService();
+    // GUEST_TABLE avoids the tattoo over-payment balance lookup; the point here
+    // is only that omitting paidAt skips the bounds check and records.
+    prisma.guestArtistBooking.findUnique.mockResolvedValue({ id: 'gab_1' });
+
+    const { payment } = await service.createCashPayment(
+      {
+        source: PaymentSource.GUEST_TABLE,
+        grossCents: 12_000,
+        guestArtistBookingId: 'gab_1',
+      } as never,
+      'admin_1',
+    );
+
+    expect(prisma.payment.create).toHaveBeenCalledTimes(1);
+    expect(payment.source).toBe(PaymentSource.GUEST_TABLE);
   });
 });

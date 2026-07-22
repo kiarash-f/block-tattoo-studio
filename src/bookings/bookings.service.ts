@@ -177,7 +177,7 @@ export class BookingsService {
     // Prevent COMPLETED before tattoo session date
     if (next === BookingStatus.COMPLETED) {
       const session = await this.prisma.tattooSession.findFirst({
-        where: { bookingRequestId: id },
+        where: { bookingRequestId: id, archivedAt: null },
         orderBy: { scheduledDate: 'asc' },
         select: { scheduledDate: true },
       });

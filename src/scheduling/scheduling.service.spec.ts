@@ -184,3 +184,33 @@ describe('SchedulingService — consult-slot capacity counting (M12)', () => {
     ).toEqual({ select: { bookings: true } });
   });
 });
+
+describe('SchedulingService — TattooSession soft-delete (§8.3c)', () => {
+  it('archives instead of hard-deleting, stamping archivedAt', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findUnique.mockResolvedValue({
+      id: 't1',
+      archivedAt: null,
+    });
+    prisma.tattooSession.update.mockResolvedValue({ id: 't1' });
+
+    await service.deleteTattooSession('t1');
+
+    const call = prisma.tattooSession.update.mock.calls[0][0];
+    expect(call.where).toEqual({ id: 't1' });
+    expect(call.data.archivedAt).toBeInstanceOf(Date);
+  });
+
+  it('404s an already-archived session (double-delete is a no-op)', async () => {
+    const { service, prisma } = await createService();
+    prisma.tattooSession.findUnique.mockResolvedValue({
+      id: 't1',
+      archivedAt: new Date(),
+    });
+
+    await expect(service.deleteTattooSession('t1')).rejects.toThrow(
+      /not found/i,
+    );
+    expect(prisma.tattooSession.update).not.toHaveBeenCalled();
+  });
+});

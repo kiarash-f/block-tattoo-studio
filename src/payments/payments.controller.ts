@@ -12,7 +12,9 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { AdminJwtPayload } from '../auth/jwt.strategy';
+import { NotFoundException } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
+import { InvoiceService } from './invoice.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { CancelPaymentDto } from './dto/cancel-payment.dto';
 import { ListPaymentsQueryDto } from './dto/list-payments.query.dto';
@@ -22,7 +24,10 @@ import { ListPaymentsQueryDto } from './dto/list-payments.query.dto';
 @UseGuards(AuthGuard('jwt'))
 @Controller('admin/payments')
 export class PaymentsController {
-  constructor(private readonly payments: PaymentsService) {}
+  constructor(
+    private readonly payments: PaymentsService,
+    private readonly invoices: InvoiceService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -93,5 +98,26 @@ export class PaymentsController {
   ) {
     const user = req.user as AdminJwtPayload;
     return this.payments.cancelPayment(id, user.sub, dto.reason);
+  }
+
+  @Get(':id/invoice')
+  @ApiOperation({
+    summary: 'Fetch the §14 UStG invoice for a payment',
+    description:
+      'Returns the immutable invoice snapshot created with the payment ' +
+      '(gap-free number, studio identity, net/VAT/gross + rate, customer). ' +
+      'PDF rendering is a later concern — this returns the invoice data only. ' +
+      '404 if the payment has no invoice (e.g. payments recorded before ' +
+      'invoicing went live — historical rows are not backfilled).',
+  })
+  @ApiParam({ name: 'id', description: 'Payment id (cuid)' })
+  @ApiResponse({ status: 200, description: 'Invoice snapshot.' })
+  @ApiResponse({ status: 404, description: 'No invoice for this payment.' })
+  async invoice(@Param('id') id: string) {
+    const invoice = await this.invoices.getByPaymentId(id);
+    if (!invoice) {
+      throw new NotFoundException(`No invoice found for payment ${id}`);
+    }
+    return invoice;
   }
 }

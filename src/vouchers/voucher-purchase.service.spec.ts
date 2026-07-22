@@ -5,6 +5,7 @@ import { PaymentSource, VoucherStatus, VoucherType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from '../stripe/stripe.service';
 import { PaymentsService } from '../payments/payments.service';
+import { InvoiceService } from '../payments/invoice.service';
 import { VoucherPurchaseService } from './voucher-purchase.service';
 
 /**
@@ -41,6 +42,7 @@ async function createService() {
     providers: [
       VoucherPurchaseService,
       PaymentsService,
+      InvoiceService,
       { provide: PrismaService, useValue: prisma },
       { provide: StripeService, useValue: stripe },
       { provide: ConfigService, useValue: config },
@@ -185,5 +187,24 @@ describe('VoucherPurchaseService — custom amount validation', () => {
       service.purchase({ productId: 'nope', ...buyer }),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.voucherSale.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('VoucherPurchaseService — H7 multi-purpose block', () => {
+  it('hard-blocks the SALE of a MULTI_PURPOSE product (defence-in-depth)', async () => {
+    const { service, prisma, stripe } = await createService();
+    // A product that somehow reached MULTI_PURPOSE (creation is already blocked
+    // elsewhere) must still never be sold — VAT timing is not yet handled.
+    prisma.voucherProduct.findUnique.mockResolvedValue(
+      fullDayProduct({ voucherTreatment: 'MULTI_PURPOSE' }),
+    );
+
+    await expect(
+      service.purchase({ productId: 'vp_1', ...buyer }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // No sale row, no checkout session — the block is before both.
+    expect(prisma.voucherSale.create).not.toHaveBeenCalled();
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
   });
 });

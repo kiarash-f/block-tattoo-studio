@@ -94,6 +94,7 @@ export class SessionWindowService {
     const where: Prisma.TattooSessionWhereInput = {
       artistId,
       ...(excludeSessionId ? { id: { not: excludeSessionId } } : {}),
+      archivedAt: null, // archived (soft-deleted) sessions free their window
       completedAt: null,
       startsAt: { not: null },
       endsAt: { not: null },

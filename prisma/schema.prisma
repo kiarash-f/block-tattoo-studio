@@ -584,6 +584,11 @@ model GuestArtistBooking {
   stripeSessionId  String?
   stripePaymentUrl String?
   status           GuestBookingStatus @default(PENDING_PAYMENT)
+  // GoBD (§8.3): soft-delete. A booking can be the target of a Payment, so it is
+  // never hard-deleted; `remove()` stamps archivedAt and every active view
+  // (lists, availability/capacity) filters archivedAt = null. onDelete: Restrict
+  // on the Payment FK still guards paid rows regardless.
+  archivedAt       DateTime?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
@@ -594,6 +599,7 @@ model GuestArtistBooking {
   @@index([status])
   @@index([startDate, endDate])
   @@index([email])
+  @@index([archivedAt])
 }
 
 model TattooSession {
@@ -613,10 +619,16 @@ model TattooSession {
   // follows the BookingAssignment.startsAt/endsAt precedent (no time-only type
   // exists). Nullable at the DB so pre-feature rows and partial edits stay valid;
   // REQUIRED at the app layer when scheduling via schedule-tattoo / walk-in.
-  startsAt    DateTime?
-  endsAt      DateTime?
-  completedAt DateTime?
-  notes       String?
+  startsAt      DateTime?
+  endsAt        DateTime?
+  completedAt   DateTime?
+  notes         String?
+
+  // GoBD (§8.3): soft-delete. Sessions carry scheduling history tied to booking
+  // (and thus payment) context, so `deleteTattooSession()` stamps archivedAt
+  // instead of hard-deleting. Active views and the artist-collision check filter
+  // archivedAt = null.
+  archivedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -627,6 +639,7 @@ model TattooSession {
   @@index([scheduledDate])
   // Supports the per-artist same-day collision lookup (artistId + scheduledDate).
   @@index([artistId, scheduledDate])
+  @@index([archivedAt])
 }
 
 // ─── Generic Payment Foundation ──────────────────────────────────────────────
@@ -691,6 +704,15 @@ model Payment {
   cancelledAt        DateTime?
   cancelledByAdminId String?
   cancelledByAdmin   AdminUser? @relation("PaymentCancelledBy", fields: [cancelledByAdminId], references: [id], onDelete: SetNull)
+  // GoBD (§8.3): cancellation reason lives in its own set-once field so the
+  // original `note` is never rewritten. Written exactly once, atomically, on the
+  // PAID → CANCELLED conditional update; a CANCELLED payment can't transition
+  // again, so this is effectively append-only.
+  cancellationReason String?
+
+  // §14 UStG invoice for this realized payment (1:1). Created in the SAME
+  // transaction as the Payment, so a PAID payment always has exactly one invoice.
+  invoice Invoice?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -805,4 +827,70 @@ model VoucherSale {
   @@index([buyerEmail])
   @@index([redeemedByAdminId])
   @@index([redeemedAgainstBookingId])
+}
+
+// ─── Invoicing (§14 UStG) ────────────────────────────────────────────────────
+// One immutable invoice per realized (PAID) Payment, created in the SAME
+// transaction as the Payment. Snapshots the §14 mandatory fields (studio
+// identity, invoice date, net/VAT/gross + rate) so the record is self-contained
+// even if config or the payment later changes. NEVER edited or deleted:
+// cancelling the underlying payment does NOT retract the invoice (German law
+// requires a Storno/credit note — deferred, see AUDIT.md §8.3).
+//
+// The sequential number is per-year and GAP-FREE. It is allocated by the DB via
+// InvoiceCounter inside the payment transaction (INSERT ... ON CONFLICT DO
+// UPDATE ... RETURNING) — never computed in app code — so concurrent payments
+// serialize on the counter row lock and a rolled-back payment returns its number
+// to the pool (no gap). `year` + `number` together are the sequence; the
+// zero-padded `formattedNumber` (YYYY-000001) is the human-facing id.
+model Invoice {
+  id String @id @default(cuid())
+
+  // Gap-free sequence: unique per (year, number); formattedNumber is the display id.
+  year            Int
+  number          Int
+  formattedNumber String @unique
+
+  issuedAt DateTime @default(now()) // §14 invoice date (= when the payment was recorded)
+
+  // ─── Studio identity snapshot (§14 Abs. 4 Nr. 1–2) ──────────────────────────
+  // Copied from config at issue time. §14 accepts EITHER Steuernummer OR
+  // USt-IdNr, so a single taxNumber field holds whichever is configured.
+  studioName      String
+  studioAddress   String
+  studioTaxNumber String
+  studioPhone     String?
+  studioWebsite   String?
+
+  // ─── Amount snapshot (§14 Abs. 4 Nr. 7–8) — integer cents, from the Payment ──
+  currency       String @default("EUR")
+  netCents       Int
+  vatAmountCents Int
+  grossCents     Int
+  vatRateBps     Int
+
+  // ─── Recipient snapshot (best-available; full B2B address is a later concern) ─
+  customerName  String?
+  customerEmail String?
+  source        PaymentSource // TATTOO | GUEST_TABLE | VOUCHER
+  reference     String? // target record id, paired with source
+
+  // ─── Link back to the payment (1:1) ─────────────────────────────────────────
+  paymentId String  @unique
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@unique([year, number]) // the gap-free per-year sequence
+  @@index([issuedAt])
+}
+
+// Single-purpose counter backing the gap-free invoice numbers: one row per year,
+// holding the last number issued that year. Mutated ONLY via the atomic
+// allocate-in-transaction statement described on Invoice; never read-then-write
+// in app code.
+model InvoiceCounter {
+  year       Int      @id
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
 }
