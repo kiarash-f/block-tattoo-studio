@@ -300,6 +300,7 @@ export class AdminAnalyticsService {
 
     const where: any = {
       scheduledDate: { gte: startUtc, lt: endUtc },
+      archivedAt: null, // archived (soft-deleted) sessions leave capacity stats
     };
     if (q.artistId) where.artistId = q.artistId;
     if (q.stationId) where.stationId = q.stationId;

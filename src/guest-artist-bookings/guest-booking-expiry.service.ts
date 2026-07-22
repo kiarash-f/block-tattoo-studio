@@ -25,6 +25,7 @@ export class GuestBookingExpiryService {
     const stale = await this.prisma.guestArtistBooking.findMany({
       where: {
         status: GuestBookingStatus.PENDING_PAYMENT,
+        archivedAt: null, // archived bookings are out of scope for expiry
         createdAt: { lt: cutoff },
       },
       select: { id: true, stripeSessionId: true },

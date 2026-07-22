@@ -10,6 +10,7 @@ import {
   Prisma,
   VoucherDelivery,
   VoucherStatus,
+  VoucherTreatment,
   VoucherType,
 } from '@prisma/client';
 import * as crypto from 'crypto';
@@ -48,6 +49,19 @@ export class VoucherPurchaseService {
       where: { id: dto.productId },
     });
     if (!product) throw new NotFoundException('Voucher product not found');
+
+    // H7: multi-purpose vouchers accrue VAT at REDEMPTION (§3 Abs. 15 UStG), but
+    // no payment-writing code handles that timing yet — every voucher payment is
+    // VAT-split at sale. Creating/updating a MULTI_PURPOSE product is already
+    // blocked (VoucherProductsService.assertTreatmentSupported), so none should
+    // exist; this is the defence-in-depth twin on the sale path, so even a
+    // product that reached MULTI_PURPOSE by another route can never be sold with
+    // mis-timed VAT. Remove both blocks together when redemption-time VAT lands.
+    if (product.voucherTreatment === VoucherTreatment.MULTI_PURPOSE) {
+      throw new BadRequestException(
+        'Multi-purpose vouchers are not yet supported',
+      );
+    }
 
     const grossCents = this.resolveGrossCents(product, dto.amountCents);
     const delivery = dto.delivery ?? VoucherDelivery.EMAIL;

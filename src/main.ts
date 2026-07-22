@@ -111,6 +111,20 @@ async function bootstrap() {
   app.use(helmet());
 
   const logger = new Logger('Bootstrap');
+
+  // §14 UStG: invoices need a studio tax id (Steuernummer OR USt-IdNr). Empty is
+  // tolerated so testing/deploys aren't blocked, but in production its absence
+  // must be loud — invoices issued now would carry a blank tax line.
+  if (
+    process.env.NODE_ENV === 'production' &&
+    !process.env.STUDIO_TAX_NUMBER?.trim()
+  ) {
+    logger.warn(
+      'STUDIO_TAX_NUMBER is empty — §14 UStG invoices will be issued without a ' +
+        'tax number. Set the Steuernummer or USt-IdNr before real invoicing.',
+    );
+  }
+
   const port = process.env.PORT ? Number(process.env.PORT) : 3102;
   await app.listen(port, '0.0.0.0');
   logger.log(`API running on http://localhost:${port}`);

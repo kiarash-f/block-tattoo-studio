@@ -200,7 +200,10 @@ export class SchedulingService {
     const session = await this.prisma.tattooSession.findUnique({
       where: { id: sessionId },
     });
-    if (!session) throw new NotFoundException('Tattoo session not found');
+    // Archived sessions read as gone — no edits, no completion, no re-delete.
+    if (!session || session.archivedAt) {
+      throw new NotFoundException('Tattoo session not found');
+    }
 
     if (dto.scheduledDate) {
       const date = new Date(dto.scheduledDate);
@@ -280,7 +283,9 @@ export class SchedulingService {
     const session = await this.prisma.tattooSession.findUnique({
       where: { id: sessionId },
     });
-    if (!session) throw new NotFoundException('Tattoo session not found');
+    if (!session || session.archivedAt) {
+      throw new NotFoundException('Tattoo session not found');
+    }
 
     if (session.completedAt) {
       throw new BadRequestException('Session is already marked as completed');
@@ -296,12 +301,25 @@ export class SchedulingService {
     });
   }
 
+  /**
+   * GoBD (§8.3): soft-delete. Sessions carry scheduling history tied to booking
+   * (and thus payment) context, so this archives the row (archivedAt stamped)
+   * instead of hard-deleting. Active views and the artist-collision check filter
+   * archivedAt = null, so an archived session frees its time window. Already-
+   * archived sessions 404 so a double-delete is a clean no-op.
+   */
   async deleteTattooSession(sessionId: string) {
     const session = await this.prisma.tattooSession.findUnique({
       where: { id: sessionId },
+      select: { id: true, archivedAt: true },
     });
-    if (!session) throw new NotFoundException('Tattoo session not found');
+    if (!session || session.archivedAt) {
+      throw new NotFoundException('Tattoo session not found');
+    }
 
-    return this.prisma.tattooSession.delete({ where: { id: sessionId } });
+    return this.prisma.tattooSession.update({
+      where: { id: sessionId },
+      data: { archivedAt: new Date() },
+    });
   }
 }

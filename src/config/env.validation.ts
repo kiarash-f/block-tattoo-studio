@@ -62,6 +62,19 @@ export const envValidationSchema = Joi.object({
   // Payments — VAT rate in basis points (1900 = 19%), snapshotted onto each Payment
   VAT_RATE_BPS: Joi.number().integer().min(0).default(1900),
 
+  // §8.3(b): lower bound for a cash payment's paidAt — nothing may be dated
+  // before the studio went live. Defaults to the deploy date; tighten to the
+  // real go-live date once known. YYYY-MM-DD.
+  PAYMENTS_GO_LIVE_DATE: Joi.string()
+    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .default('2026-07-22'),
+
+  // §14 UStG — studio tax id printed on invoices. EITHER the Steuernummer OR the
+  // USt-IdNr is legally sufficient, so whichever is set here is used as-is.
+  // Blank is allowed so testing/deploys aren't blocked; a production boot with it
+  // empty logs a loud warning (see main.ts) rather than failing.
+  STUDIO_TAX_NUMBER: Joi.string().optional().allow('').default(''),
+
   // Transactional Email (Resend)
   RESEND_API_KEY: Joi.string().optional().allow(''),
   EMAIL_FROM: Joi.string().optional().allow(''),

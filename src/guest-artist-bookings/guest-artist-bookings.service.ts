@@ -71,6 +71,7 @@ export class GuestArtistBookingsService {
     const overlapping = await this.prisma.guestArtistBooking.findMany({
       where: {
         status: { in: ACTIVE_STATUSES },
+        archivedAt: null, // archived (soft-deleted) bookings free their tables
         startDate: { lte: endDate },
         endDate: { gte: startDate },
       },
@@ -147,6 +148,7 @@ export class GuestArtistBookingsService {
     const overlapping = await tx.guestArtistBooking.findMany({
       where: {
         status: { in: ACTIVE_STATUSES },
+        archivedAt: null, // archived (soft-deleted) bookings free their tables
         startDate: { lte: endDate },
         endDate: { gte: startDate },
         ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
@@ -271,7 +273,8 @@ export class GuestArtistBookingsService {
   // ─── Admin: list ──────────────────────────────────────────────────────────
 
   async list(query: ListGuestBookingsQueryDto) {
-    const where: Prisma.GuestArtistBookingWhereInput = {};
+    // Archived (soft-deleted) bookings are excluded from the active admin list.
+    const where: Prisma.GuestArtistBookingWhereInput = { archivedAt: null };
 
     if (query.status) where.status = query.status;
 
@@ -307,7 +310,10 @@ export class GuestArtistBookingsService {
     const booking = await this.prisma.guestArtistBooking.findUnique({
       where: { id },
     });
-    if (!booking) throw new NotFoundException('Guest booking not found');
+    // Archived bookings read as gone from the admin API.
+    if (!booking || booking.archivedAt) {
+      throw new NotFoundException('Guest booking not found');
+    }
     return booking;
   }
 
@@ -316,9 +322,11 @@ export class GuestArtistBookingsService {
   async update(id: string, dto: UpdateGuestBookingDto) {
     const existing = await this.prisma.guestArtistBooking.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, archivedAt: true },
     });
-    if (!existing) throw new NotFoundException('Guest booking not found');
+    if (!existing || existing.archivedAt) {
+      throw new NotFoundException('Guest booking not found');
+    }
 
     const config = await this.configSvc.get();
 
@@ -331,7 +339,9 @@ export class GuestArtistBookingsService {
       await acquireNamespaceLock(tx, LockNamespace.GUEST_TABLE_AVAILABILITY);
 
       const current = await tx.guestArtistBooking.findUnique({ where: { id } });
-      if (!current) throw new NotFoundException('Guest booking not found');
+      if (!current || current.archivedAt) {
+        throw new NotFoundException('Guest booking not found');
+      }
 
       const needsRecalc =
         dto.startDate !== undefined ||
@@ -399,11 +409,24 @@ export class GuestArtistBookingsService {
 
   // ─── Admin: delete ────────────────────────────────────────────────────────
 
+  /**
+   * GoBD (§8.3): soft-delete. A guest booking can be the target of a Payment, so
+   * it is archived (archivedAt stamped), never hard-deleted — the row stays for
+   * financial context and every active view filters archivedAt = null. Already-
+   * archived bookings 404 so a double-delete is a clean no-op. An idempotent
+   * timestamp: re-archiving does not move the original archive time.
+   */
   async remove(id: string) {
     const existing = await this.prisma.guestArtistBooking.findUnique({
       where: { id },
+      select: { id: true, archivedAt: true },
     });
-    if (!existing) throw new NotFoundException('Guest booking not found');
-    return this.prisma.guestArtistBooking.delete({ where: { id } });
+    if (!existing || existing.archivedAt) {
+      throw new NotFoundException('Guest booking not found');
+    }
+    return this.prisma.guestArtistBooking.update({
+      where: { id },
+      data: { archivedAt: new Date() },
+    });
   }
 }

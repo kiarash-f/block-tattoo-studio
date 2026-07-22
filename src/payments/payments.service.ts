@@ -12,6 +12,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { InvoiceService } from './invoice.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { ListPaymentsQueryDto } from './dto/list-payments.query.dto';
 import {
@@ -63,12 +64,39 @@ export interface RecordPaymentInput {
 @Injectable()
 export class PaymentsService {
   private readonly defaultVatRateBps: number;
+  /** Earliest plausible paidAt for a cash payment (§8.3b). UTC midnight of go-live. */
+  private readonly goLiveDate: Date;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly invoices: InvoiceService,
   ) {
     this.defaultVatRateBps = this.config.get<number>('VAT_RATE_BPS', 1900);
+    this.goLiveDate = new Date(
+      `${this.config.get<string>('PAYMENTS_GO_LIVE_DATE', '2026-07-22')}T00:00:00.000Z`,
+    );
+  }
+
+  /**
+   * GoBD (§8.3b): keep a cash payment's paidAt plausible. Reject a date in the
+   * future (with a small clock-skew allowance) or before the studio went live —
+   * either would make the books implausible. Only the cash path can set paidAt;
+   * the webhook always stamps now(), so it is never bounded here.
+   */
+  private assertPaidAtInBounds(paidAt: Date): void {
+    if (Number.isNaN(paidAt.getTime())) {
+      throw new BadRequestException('paidAt is not a valid date');
+    }
+    const SKEW_MS = 5 * 60 * 1000; // tolerate minor client/server clock drift
+    if (paidAt.getTime() > Date.now() + SKEW_MS) {
+      throw new BadRequestException('paidAt cannot be in the future');
+    }
+    if (paidAt.getTime() < this.goLiveDate.getTime()) {
+      throw new BadRequestException(
+        `paidAt cannot be before go-live (${this.goLiveDate.toISOString().slice(0, 10)})`,
+      );
+    }
   }
 
   /**
@@ -201,6 +229,9 @@ export class PaymentsService {
     this.assertTargetMatchesSource(target);
     await this.assertTargetExists(target);
 
+    const paidAt = dto.paidAt ? new Date(dto.paidAt) : undefined;
+    if (paidAt) this.assertPaidAtInBounds(paidAt);
+
     let payment: Awaited<ReturnType<typeof this.recordPayment>>;
     let idempotentReplay = false;
 
@@ -211,7 +242,7 @@ export class PaymentsService {
         grossCents: dto.grossCents,
         bookingRequestId: dto.bookingRequestId,
         guestArtistBookingId: dto.guestArtistBookingId,
-        paidAt: dto.paidAt ? new Date(dto.paidAt) : undefined,
+        paidAt,
         note: dto.note,
         createdByAdminId: adminId,
         cashIdempotencyKey: dto.idempotencyKey,
@@ -270,35 +301,22 @@ export class PaymentsService {
    * rejected. An optional reason is appended to the note for audit.
    */
   async cancelPayment(id: string, adminId: string, reason?: string) {
-    // Read first only to compose the note from the existing one; the read is
-    // NOT the guard. Two concurrent cancels can both reach this point.
-    const existing = await this.prisma.payment.findUnique({
-      where: { id },
-      select: { note: true },
-    });
-    if (!existing) {
-      throw new NotFoundException(`Payment ${id} not found`);
-    }
-
-    const trimmedReason = reason?.trim();
-    const note = trimmedReason
-      ? existing.note
-        ? `${existing.note} | Cancelled: ${trimmedReason}`
-        : `Cancelled: ${trimmedReason}`
-      : existing.note;
+    const trimmedReason = reason?.trim() || null;
 
     // The status flip is the guard: an atomic conditional update matching only
     // a still-PAID row, so of two concurrent cancels exactly one flips it. The
     // loser matches 0 rows and cannot overwrite the winner's cancelledAt /
-    // cancelledByAdminId or append its reason a second time (M1) — same pattern
-    // as voucher redeem.
+    // cancelledByAdminId / cancellationReason (M1) — same pattern as voucher
+    // redeem. The read-then-compose of `note` is gone entirely (GoBD §8.3): the
+    // reason goes in its own set-once `cancellationReason` field and the
+    // original `note` is never rewritten.
     const result = await this.prisma.payment.updateMany({
       where: { id, status: PaymentStatus.PAID },
       data: {
         status: PaymentStatus.CANCELLED,
         cancelledAt: new Date(),
         cancelledByAdminId: adminId,
-        note,
+        cancellationReason: trimmedReason,
       },
     });
 
@@ -321,12 +339,18 @@ export class PaymentsService {
   }
 
   /**
-   * Create a single Payment row (status PAID). Shared by the cash and link paths.
-   * Idempotency on stripeSessionId is enforced by the unique index and guarded
-   * upstream by the webhook; this method only records the payment.
+   * Create a single Payment row (status PAID) AND its §14 UStG invoice, in one
+   * atomic unit. Shared by the cash and link paths, so every realized payment —
+   * whatever the source — gets exactly one gap-free invoice. Idempotency on
+   * stripeSessionId is enforced by the unique index and guarded upstream by the
+   * webhook; this method only records the payment + invoice.
    *
    * Pass `tx` to enlist this write in a caller's interactive transaction (e.g.
-   * the webhook flips the booking + records the payment atomically).
+   * the webhook flips the booking + records the payment atomically). When no `tx`
+   * is passed (cash), we open our own so the payment and invoice still commit or
+   * roll back together — the invoice number depends on it. The caller's
+   * transaction must contain NO network I/O (Stripe/email) — the invoice
+   * allocation holds a counter row lock until commit.
    */
   async recordPayment(input: RecordPaymentInput, tx?: Prisma.TransactionClient) {
     if (!Number.isInteger(input.grossCents) || input.grossCents <= 0) {
@@ -347,30 +371,38 @@ export class PaymentsService {
       vatRateBps,
     );
 
-    const db = tx ?? this.prisma;
+    const write = async (db: Prisma.TransactionClient) => {
+      const payment = await db.payment.create({
+        data: {
+          source: input.source,
+          method: input.method,
+          // status defaults to PAID
+          currency: input.currency ?? 'EUR',
+          grossCents: input.grossCents,
+          netCents,
+          vatAmountCents,
+          vatRateBps,
+          paidAt: input.paidAt ?? new Date(),
+          bookingRequestId: input.bookingRequestId ?? null,
+          guestArtistBookingId: input.guestArtistBookingId ?? null,
+          voucherSaleId: input.voucherSaleId ?? null,
+          stripeSessionId: input.stripeSessionId ?? null,
+          stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+          stripeChargeId: input.stripeChargeId ?? null,
+          createdByAdminId: input.createdByAdminId ?? null,
+          note: input.note ?? null,
+          cashIdempotencyKey: input.cashIdempotencyKey ?? null,
+        },
+      });
 
-    return db.payment.create({
-      data: {
-        source: input.source,
-        method: input.method,
-        // status defaults to PAID
-        currency: input.currency ?? 'EUR',
-        grossCents: input.grossCents,
-        netCents,
-        vatAmountCents,
-        vatRateBps,
-        paidAt: input.paidAt ?? new Date(),
-        bookingRequestId: input.bookingRequestId ?? null,
-        guestArtistBookingId: input.guestArtistBookingId ?? null,
-        voucherSaleId: input.voucherSaleId ?? null,
-        stripeSessionId: input.stripeSessionId ?? null,
-        stripePaymentIntentId: input.stripePaymentIntentId ?? null,
-        stripeChargeId: input.stripeChargeId ?? null,
-        createdByAdminId: input.createdByAdminId ?? null,
-        note: input.note ?? null,
-        cashIdempotencyKey: input.cashIdempotencyKey ?? null,
-      },
-    });
+      // Same transaction: a PAID payment always has exactly one invoice, and the
+      // gap-free number rolls back with the payment if the commit fails.
+      await this.invoices.createForPayment(db, payment);
+
+      return payment;
+    };
+
+    return tx ? write(tx) : this.prisma.$transaction((db) => write(db));
   }
 
   // ─── Public status lookup ───────────────────────────────────────────────────

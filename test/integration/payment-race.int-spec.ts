@@ -8,6 +8,7 @@ import {
   PrismaClient,
 } from '@prisma/client';
 import { PaymentsService } from '../../src/payments/payments.service';
+import { InvoiceService } from '../../src/payments/invoice.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import {
   createTestPrisma,
@@ -36,9 +37,14 @@ describeIntegration('M1/M2 — payment concurrency', () => {
 
   beforeAll(() => {
     prisma = createTestPrisma();
+    const invoices = new InvoiceService(
+      prisma as unknown as PrismaService,
+      configStub,
+    );
     payments = new PaymentsService(
       prisma as unknown as PrismaService,
       configStub,
+      invoices,
     );
   });
 
@@ -132,9 +138,9 @@ describeIntegration('M1/M2 — payment concurrency', () => {
       expect(row.status).toBe(PaymentStatus.CANCELLED);
       // Exactly one admin, and it is one of the two that tried.
       expect([adminA, adminB]).toContain(row.cancelledByAdminId);
-      // Exactly one reason recorded — not both appended.
-      const appended = (row.note ?? '').match(/Cancelled:/g) ?? [];
-      expect(appended).toHaveLength(1);
+      // Exactly one reason recorded, in its own field (never appended to note).
+      expect(['reason A', 'reason B']).toContain(row.cancellationReason);
+      expect(row.note).toBeNull();
     });
 
     it('a cancelled payment stops counting toward the booking balance', async () => {
@@ -148,7 +154,7 @@ describeIntegration('M1/M2 — payment concurrency', () => {
       expect(await payments.sumPaidCentsForBooking(bookingRequestId)).toBe(0);
     });
 
-    it('preserves an existing note when appending the cancellation reason', async () => {
+    it('records the cancellation reason in its own field, leaving note intact', async () => {
       const payment = await paidPayment('deposit in cash');
 
       const cancelled = await payments.cancelPayment(
@@ -157,7 +163,9 @@ describeIntegration('M1/M2 — payment concurrency', () => {
         'wrong amount',
       );
 
-      expect(cancelled.note).toBe('deposit in cash | Cancelled: wrong amount');
+      // GoBD §8.3: the original note is never rewritten; the reason is separate.
+      expect(cancelled.note).toBe('deposit in cash');
+      expect(cancelled.cancellationReason).toBe('wrong amount');
     });
 
     it('rejects an unknown payment id as not found', async () => {
