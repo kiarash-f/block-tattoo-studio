@@ -34,7 +34,7 @@ export interface GuestArtistBookingConfirmationData {
   endDate: Date;
   numberOfTables: number;
   numberOfDays: number;
-  totalPrice: number;
+  totalPriceCents: number;
   discountPercent: number;
 }
 
@@ -225,7 +225,7 @@ export class EmailService {
       endDate,
       numberOfTables,
       numberOfDays,
-      totalPrice,
+      totalPriceCents,
       discountPercent,
     } = data;
 
@@ -291,7 +291,7 @@ export class EmailService {
           <td style="font-size:13px;color:#666;padding-top:12px;padding-bottom:4px;">Total Price</td>
         </tr>
         <tr>
-          <td style="font-size:20px;font-weight:bold;color:#111;">€${totalPrice.toFixed(2)}</td>
+          <td style="font-size:20px;font-weight:bold;color:#111;">€${(totalPriceCents / 100).toFixed(2)}</td>
         </tr>
       </table>
 

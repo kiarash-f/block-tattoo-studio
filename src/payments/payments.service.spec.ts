@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { PaymentMethod, PaymentSource, PaymentStatus } from '@prisma/client';
@@ -20,6 +24,8 @@ async function createService(defaultVatRateBps = 1900) {
       count: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
+      updateMany: jest.fn(),
       update: jest.fn(
         ({
           where,
@@ -50,6 +56,8 @@ async function createService(defaultVatRateBps = 1900) {
 
   return { service: module.get<PaymentsService>(PaymentsService), prisma, config };
 }
+
+type MockPrisma = Awaited<ReturnType<typeof createService>>['prisma'];
 
 /** A valid GUEST_TABLE payment input, parameterised by amount + optional rate. */
 function guestInput(grossCents: number, vatRateBps?: number) {
@@ -457,72 +465,93 @@ describe('PaymentsService — list context normalization', () => {
   });
 });
 
+/**
+ * cancelPayment is now a conditional updateMany guarded on status = PAID (M1),
+ * so these mocks drive `updateMany.count`: 1 = this call won the flip, 0 = it
+ * lost (or the row was never PAID) and the service re-reads to explain why.
+ */
 describe('PaymentsService — cancelPayment', () => {
-  it('(a) flips PAID → CANCELLED and stamps the audit fields', async () => {
-    const { service, prisma } = await createService();
-    prisma.payment.findUnique.mockResolvedValue({
+  /** Mock a payment that exists with `status`, and a flip that succeeds. */
+  function arrangeWin(
+    prisma: MockPrisma,
+    row: { id?: string; status?: PaymentStatus; note?: string | null } = {},
+  ) {
+    const full = {
       id: 'p1',
       status: PaymentStatus.PAID,
       note: null,
+      ...row,
+    };
+    prisma.payment.findUnique.mockResolvedValue(full);
+    prisma.payment.updateMany.mockResolvedValue({ count: 1 });
+    prisma.payment.findUniqueOrThrow.mockResolvedValue({
+      ...full,
+      status: PaymentStatus.CANCELLED,
     });
+    return full;
+  }
+
+  /** Mock a flip that matched nothing, with `current` as the re-read state. */
+  function arrangeLoss(
+    prisma: MockPrisma,
+    current: { status: PaymentStatus } | null,
+  ) {
+    prisma.payment.findUnique
+      .mockResolvedValueOnce({ id: 'p1', note: null })
+      .mockResolvedValueOnce(current);
+    prisma.payment.updateMany.mockResolvedValue({ count: 0 });
+  }
+
+  it('(a) flips PAID → CANCELLED and stamps the audit fields', async () => {
+    const { service, prisma } = await createService();
+    arrangeWin(prisma);
 
     const res = await service.cancelPayment('p1', 'admin_1', 'Refunded in cash');
 
-    expect(prisma.payment.update).toHaveBeenCalledTimes(1);
-    const data = prisma.payment.update.mock.calls[0][0].data;
-    expect(data.status).toBe(PaymentStatus.CANCELLED);
-    expect(data.cancelledByAdminId).toBe('admin_1');
-    expect(data.cancelledAt).toBeInstanceOf(Date);
-    expect(data.note).toBe('Cancelled: Refunded in cash');
+    expect(prisma.payment.updateMany).toHaveBeenCalledTimes(1);
+    const call = prisma.payment.updateMany.mock.calls[0][0];
+    // The guard: only a still-PAID row is eligible.
+    expect(call.where).toEqual({ id: 'p1', status: PaymentStatus.PAID });
+    expect(call.data.status).toBe(PaymentStatus.CANCELLED);
+    expect(call.data.cancelledByAdminId).toBe('admin_1');
+    expect(call.data.cancelledAt).toBeInstanceOf(Date);
+    expect(call.data.note).toBe('Cancelled: Refunded in cash');
     expect(res.status).toBe(PaymentStatus.CANCELLED);
   });
 
   it('appends the reason to an existing note', async () => {
     const { service, prisma } = await createService();
-    prisma.payment.findUnique.mockResolvedValue({
-      id: 'p1',
-      status: PaymentStatus.PAID,
-      note: 'cash at desk',
-    });
+    arrangeWin(prisma, { note: 'cash at desk' });
     await service.cancelPayment('p1', 'admin_1', 'refunded');
-    expect(prisma.payment.update.mock.calls[0][0].data.note).toBe(
+    expect(prisma.payment.updateMany.mock.calls[0][0].data.note).toBe(
       'cash at desk | Cancelled: refunded',
     );
   });
 
   it('leaves the note unchanged when no reason is given', async () => {
     const { service, prisma } = await createService();
-    prisma.payment.findUnique.mockResolvedValue({
-      id: 'p1',
-      status: PaymentStatus.PAID,
-      note: 'cash',
-    });
+    arrangeWin(prisma, { note: 'cash' });
     await service.cancelPayment('p1', 'admin_1');
-    expect(prisma.payment.update.mock.calls[0][0].data.note).toBe('cash');
+    expect(prisma.payment.updateMany.mock.calls[0][0].data.note).toBe('cash');
   });
 
-  it('(b) rejects cancelling an already-CANCELLED payment', async () => {
+  it('(b) reports a conflict when the payment is already CANCELLED', async () => {
     const { service, prisma } = await createService();
-    prisma.payment.findUnique.mockResolvedValue({
-      id: 'p1',
-      status: PaymentStatus.CANCELLED,
-    });
+    arrangeLoss(prisma, { status: PaymentStatus.CANCELLED });
+
+    // 409 rather than the old 400: losing a race is a conflict, not bad input.
     await expect(service.cancelPayment('p1', 'admin_1')).rejects.toBeInstanceOf(
-      BadRequestException,
+      ConflictException,
     );
-    expect(prisma.payment.update).not.toHaveBeenCalled();
   });
 
   it('(b) rejects cancelling a REFUNDED payment', async () => {
     const { service, prisma } = await createService();
-    prisma.payment.findUnique.mockResolvedValue({
-      id: 'p1',
-      status: PaymentStatus.REFUNDED,
-    });
+    arrangeLoss(prisma, { status: PaymentStatus.REFUNDED });
+
     await expect(service.cancelPayment('p1', 'admin_1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(prisma.payment.update).not.toHaveBeenCalled();
   });
 
   it('404s an unknown payment', async () => {
@@ -531,6 +560,27 @@ describe('PaymentsService — cancelPayment', () => {
     await expect(
       service.cancelPayment('nope', 'admin_1'),
     ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('404s when the row disappears between the flip and the re-read', async () => {
+    const { service, prisma } = await createService();
+    arrangeLoss(prisma, null);
+    await expect(service.cancelPayment('p1', 'admin_1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('never writes on the losing side of a concurrent cancel', async () => {
+    // The loser's updateMany matches 0 rows, so the winner's audit stamp and
+    // note survive untouched — the whole point of M1.
+    const { service, prisma } = await createService();
+    arrangeLoss(prisma, { status: PaymentStatus.CANCELLED });
+
+    await expect(service.cancelPayment('p1', 'admin_2')).rejects.toThrow();
+
+    expect(prisma.payment.update).not.toHaveBeenCalled();
+    expect(prisma.payment.updateMany).toHaveBeenCalledTimes(1);
   });
 });
 

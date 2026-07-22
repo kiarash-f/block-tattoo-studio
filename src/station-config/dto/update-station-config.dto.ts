@@ -12,13 +12,13 @@ export class UpdateStationConfigDto {
   totalTables?: number;
 
   @ApiPropertyOptional({
-    example: 80,
-    description: 'Price per table per day in EUR',
+    example: 8000,
+    description: 'Price per table per day in integer cents (e.g. 8000 = €80)',
   })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(0)
-  pricePerDay?: number;
+  pricePerDayCents?: number;
 
   @ApiPropertyOptional({
     example: 10,

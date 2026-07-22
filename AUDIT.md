@@ -90,6 +90,7 @@ The unauthenticated intake form matches existing clients by email (then phone) v
 **File:** [src/stripe-webhook/stripe-webhook.service.ts:204](src/stripe-webhook/stripe-webhook.service.ts:204)
 On `amount_total !== expected`, the code deliberately confirms the booking and emails the customer while skipping the Payment row (Sentry'd). Documented, but the customer-visible outcome ("confirmed") diverges from the books ("no revenue recorded") and depends on a human reading Sentry. The voucher flow made the opposite (safer) choice.
 **Fix:** consider matching the voucher behavior (hold, don't confirm) or auto-creating a flagged Payment row so revenue is never silently missing.
+**Decision (2026-07-20):** Option A — match the voucher flow (hold, don't confirm, no email; Sentry + human resolution). Not yet implemented; behavior unchanged in the money-safety session. Rationale: with H2 fixed the comparison is exact integer cents end-to-end, so any remaining mismatch is precisely the suspicious case that should be held.
 
 ### M5 — Voucher-code delivery failure is a log line
 **File:** [src/stripe-webhook/stripe-webhook.service.ts:353](src/stripe-webhook/stripe-webhook.service.ts:353)

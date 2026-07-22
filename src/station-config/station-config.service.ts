@@ -26,8 +26,8 @@ export class StationConfigService {
           ...(dto.totalTables !== undefined
             ? { totalTables: dto.totalTables }
             : {}),
-          ...(dto.pricePerDay !== undefined
-            ? { pricePerDay: dto.pricePerDay }
+          ...(dto.pricePerDayCents !== undefined
+            ? { pricePerDayCents: dto.pricePerDayCents }
             : {}),
           ...(dto.monthlyDiscountPercent !== undefined
             ? { monthlyDiscountPercent: dto.monthlyDiscountPercent }
@@ -40,7 +40,7 @@ export class StationConfigService {
     return this.prisma.stationConfig.create({
       data: {
         totalTables: dto.totalTables ?? 5,
-        pricePerDay: dto.pricePerDay ?? 0,
+        pricePerDayCents: dto.pricePerDayCents ?? 0,
         monthlyDiscountPercent: dto.monthlyDiscountPercent ?? 10,
       },
     });

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { LockNamespace, acquireEntityLock } from '../common/db/advisory-lock';
 
 export interface ValidatedWindow {
   startsAt: Date;
@@ -65,15 +66,19 @@ export class SessionWindowService {
    *
    * `excludeSessionId` lets the edit path skip the row being moved.
    */
-  async assertNoArtistCollision(params: {
-    artistId: string;
-    scheduledDate: Date;
-    startsAt: Date;
-    endsAt: Date;
-    excludeSessionId?: string;
-  }): Promise<void> {
+  async assertNoArtistCollision(
+    params: {
+      artistId: string;
+      scheduledDate: Date;
+      startsAt: Date;
+      endsAt: Date;
+      excludeSessionId?: string;
+    },
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
     const { artistId, scheduledDate, startsAt, endsAt, excludeSessionId } =
       params;
+    const db = tx ?? this.prisma;
 
     // Candidate scope: same artist, same UTC calendar day (uses the
     // [artistId, scheduledDate] index). Precise overlap is tested below.
@@ -100,7 +105,7 @@ export class SessionWindowService {
       },
     };
 
-    const candidates = await this.prisma.tattooSession.findMany({
+    const candidates = await db.tattooSession.findMany({
       where,
       select: { id: true, startsAt: true, endsAt: true },
     });
@@ -118,5 +123,38 @@ export class SessionWindowService {
           `to ${conflict.endsAt!.toISOString()} on this day — overlapping window`,
       );
     }
+  }
+
+  /**
+   * Race-safe form of the collision check, and the one every write path must
+   * use: takes the artist's advisory lock, then runs the check on the same
+   * transaction that will insert the session (H1).
+   *
+   * Previously the check ran before the transaction, so two concurrent
+   * schedule/walk-in/edit calls for one artist both passed and both inserted
+   * overlapping windows. Serializing per artist (rather than globally) is
+   * enough because the invariant is per-artist — two artists never contend.
+   *
+   * Lock the artist whose schedule is being written to. On a move between
+   * artists that is the destination: vacating the origin can't create an
+   * overlap, so it needs no lock.
+   *
+   * Deliberately NOT a DB exclusion constraint: whether a session occupies its
+   * window depends on the parent booking's status (a cancelled booking's stale
+   * session must not block), which lives in another table and so is invisible
+   * to any EXCLUDE ... USING gist predicate.
+   */
+  async lockArtistAndAssertNoCollision(
+    tx: Prisma.TransactionClient,
+    params: {
+      artistId: string;
+      scheduledDate: Date;
+      startsAt: Date;
+      endsAt: Date;
+      excludeSessionId?: string;
+    },
+  ): Promise<void> {
+    await acquireEntityLock(tx, LockNamespace.ARTIST_SCHEDULE, params.artistId);
+    await this.assertNoArtistCollision(params, tx);
   }
 }

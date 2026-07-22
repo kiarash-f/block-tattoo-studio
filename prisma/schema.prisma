@@ -564,7 +564,7 @@ model ConsultSlot {
 model StationConfig {
   id                     String   @id @default(cuid())
   totalTables            Int
-  pricePerDay            Float
+  pricePerDayCents       Int
   monthlyDiscountPercent Float    @default(10)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -578,7 +578,7 @@ model GuestArtistBooking {
   startDate        DateTime           @db.Date
   endDate          DateTime           @db.Date
   numberOfTables   Int
-  totalPrice       Float
+  totalPriceCents  Int
   discountApplied  Float
   acknowledgment   Boolean
   stripeSessionId  String?
@@ -663,6 +663,13 @@ model Payment {
   stripeSessionId       String? @unique // idempotency key for link payments
   stripePaymentIntentId String? // refund matching (charge.refunded)
   stripeChargeId        String? // alternate refund-match key
+
+  // ─── Cash double-submit protection (M2) ─────────────────────────────────────
+  // Client-generated key giving cash the same one-row-per-intent guarantee the
+  // unique stripeSessionId gives LINK. Null for link payments and for cash
+  // clients that don't send one, so the unique index only constrains rows that
+  // opted in (Postgres treats each NULL as distinct).
+  cashIdempotencyKey String? @unique
 
   // ─── Refunds (partial supported by subtracting refundedAmountCents) ─────────
   // LOCKED REQUIREMENT (refund feature, not yet built): over-refund must be

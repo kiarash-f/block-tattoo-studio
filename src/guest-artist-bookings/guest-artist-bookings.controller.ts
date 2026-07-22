@@ -114,7 +114,7 @@ export class GuestBookingsAdminController {
     summary: 'Update a guest booking',
     description:
       'Edit any field on a guest booking. ' +
-      'If dates or numberOfTables change, totalPrice is automatically recalculated.',
+      'If dates or numberOfTables change, totalPriceCents is automatically recalculated.',
   })
   @ApiParam({ name: 'id' })
   @ApiBody({ type: UpdateGuestBookingDto })

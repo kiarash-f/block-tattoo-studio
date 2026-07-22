@@ -55,6 +55,38 @@ export class StripeWebhookService {
 
     const session = event.data.object as CheckoutSession;
 
+    // ── Process, but never bounce a verified event back to Stripe ─────────────
+    // The event is immutable: if it is unprocessable now (malformed metadata,
+    // unexpected handler throw), it will be unprocessable on every retry too.
+    // Returning non-2xx would make Stripe retry for days; instead we report
+    // loudly and ack. (Signature failures above still return 401.)
+    try {
+      await this.processCheckoutSession(session);
+    } catch (err) {
+      this.logger.error(
+        `Stripe webhook: unhandled error processing session ${session.id} — acking to stop retries`,
+        err instanceof Error ? err.stack : err,
+      );
+      Sentry.captureException(err, {
+        level: 'error',
+        tags: { area: 'payments', webhook: 'stripe' },
+        extra: {
+          sessionId: session.id,
+          eventType: event.type,
+          metadata: session.metadata,
+          amountCents: session.amount_total,
+          outcome:
+            'event acked with 200; NO Payment recorded — manual replay needed',
+        },
+      });
+    }
+
+    return { received: true };
+  }
+
+  private async processCheckoutSession(
+    session: CheckoutSession,
+  ): Promise<void> {
     // ── Resolve routing from metadata ─────────────────────────────────────────
     // New sessions carry { payment_source, target_id, vat_rate_bps }.
     // Legacy shim: pre-cutover guest-artist sessions only had { booking_id }.
@@ -77,7 +109,14 @@ export class StripeWebhookService {
       this.logger.warn(
         `Stripe webhook: session ${session.id} has no routing metadata — skipping`,
       );
-      return { received: true };
+      this.reportMoneyWithoutPayment({
+        message:
+          'Stripe webhook: completed session has no routing metadata — Payment skipped',
+        sessionId: session.id,
+        amountCents: session.amount_total,
+        extra: { metadata: session.metadata },
+      });
+      return;
     }
 
     // ── Universal idempotency guard ───────────────────────────────────────────
@@ -87,10 +126,11 @@ export class StripeWebhookService {
       select: { id: true },
     });
     if (existingPayment) {
+      // Normal redelivery — the money IS recorded, so no Sentry here.
       this.logger.log(
         `Stripe webhook: payment already recorded for session ${session.id} — skipping`,
       );
-      return { received: true };
+      return;
     }
 
     const amountCents = session.amount_total;
@@ -98,7 +138,15 @@ export class StripeWebhookService {
       this.logger.warn(
         `Stripe webhook: session ${session.id} has no amount_total — skipping`,
       );
-      return { received: true };
+      this.reportMoneyWithoutPayment({
+        message:
+          'Stripe webhook: completed session has no amount_total — Payment skipped',
+        sessionId: session.id,
+        paymentSource,
+        targetId,
+        amountCents: null,
+      });
+      return;
     }
 
     const paymentIntentId =
@@ -145,9 +193,47 @@ export class StripeWebhookService {
         this.logger.warn(
           `Stripe webhook: unknown payment_source "${String(paymentSource)}" for session ${session.id}`,
         );
+        this.reportMoneyWithoutPayment({
+          message:
+            'Stripe webhook: unknown payment_source on completed session — Payment skipped',
+          sessionId: session.id,
+          paymentSource,
+          targetId,
+          amountCents,
+        });
     }
+  }
 
-    return { received: true };
+  /**
+   * C2: a completed checkout means Stripe took the customer's money. Any branch
+   * that then declines to write a Payment row must escalate — a silent skip is
+   * unaccounted revenue that nobody would ever notice.
+   */
+  private reportMoneyWithoutPayment(params: {
+    message: string;
+    sessionId: string;
+    paymentSource?: PaymentSource;
+    targetId?: string;
+    amountCents?: number | null;
+    extra?: Record<string, unknown>;
+  }): void {
+    const { message, sessionId, paymentSource, targetId, amountCents, extra } =
+      params;
+    Sentry.captureException(new Error(message), {
+      level: 'error',
+      tags: {
+        area: 'payments',
+        ...(paymentSource ? { payment_source: paymentSource } : {}),
+      },
+      extra: {
+        sessionId,
+        paymentSource,
+        targetId,
+        amountCents,
+        outcome: 'money received; Payment NOT recorded',
+        ...extra,
+      },
+    });
   }
 
   // ─── GUEST_TABLE: existing confirm + email flow, unchanged, + Payment row ────
@@ -168,19 +254,37 @@ export class StripeWebhookService {
       this.logger.warn(
         `Stripe webhook: booking ${bookingId} not found — skipping`,
       );
+      this.reportMoneyWithoutPayment({
+        message:
+          'Stripe webhook: paid session references a missing guest booking — Payment skipped',
+        sessionId,
+        paymentSource: PaymentSource.GUEST_TABLE,
+        targetId: bookingId,
+        amountCents,
+      });
       return;
     }
 
     if (booking.status !== GuestBookingStatus.PENDING_PAYMENT) {
-      this.logger.log(
+      // Realistic on the expiry race: the cron expired the booking, then the
+      // customer's payment (made before the session died) arrives here.
+      this.logger.warn(
         `Stripe webhook: booking ${bookingId} already in status ${booking.status} — skipping`,
       );
+      this.reportMoneyWithoutPayment({
+        message: `Stripe webhook: guest booking is ${booking.status}, not PENDING_PAYMENT — Payment skipped`,
+        sessionId,
+        paymentSource: PaymentSource.GUEST_TABLE,
+        targetId: bookingId,
+        amountCents,
+        extra: { bookingStatus: booking.status },
+      });
       return;
     }
 
     // ── Confirm booking + record Payment ──────────────────────────────────────
     // Validate the charged amount against the booking total before writing.
-    const expectedCents = Math.round(booking.totalPrice * 100);
+    const expectedCents = booking.totalPriceCents;
 
     if (amountCents === expectedCents) {
       // Atomic: a DB failure can't leave a CONFIRMED booking with no Payment row.
@@ -254,15 +358,24 @@ export class StripeWebhookService {
         endDate: booking.endDate,
         numberOfTables: booking.numberOfTables,
         numberOfDays,
-        totalPrice: booking.totalPrice,
+        totalPriceCents: booking.totalPriceCents,
         discountPercent: booking.discountApplied,
       })
-      .catch((err: unknown) =>
+      .catch((err: unknown) => {
         this.logger.error(
           `Failed to send confirmation email for booking ${bookingId}`,
           err,
-        ),
-      );
+        );
+        Sentry.captureException(err, {
+          level: 'error',
+          tags: { area: 'email', payment_source: PaymentSource.GUEST_TABLE },
+          extra: {
+            guestArtistBookingId: bookingId,
+            outcome:
+              'booking confirmed + Payment recorded; confirmation email NOT delivered',
+          },
+        });
+      });
   }
 
   // ─── VOUCHER: activate the sale + record Payment, then email the code ────────
@@ -284,13 +397,29 @@ export class StripeWebhookService {
       this.logger.warn(
         `Stripe webhook: voucher sale ${voucherSaleId} not found — skipping`,
       );
+      this.reportMoneyWithoutPayment({
+        message:
+          'Stripe webhook: paid session references a missing voucher sale — Payment skipped',
+        sessionId,
+        paymentSource: PaymentSource.VOUCHER,
+        targetId: voucherSaleId,
+        amountCents,
+      });
       return;
     }
 
     if (sale.status !== VoucherStatus.PENDING_PAYMENT) {
-      this.logger.log(
+      this.logger.warn(
         `Stripe webhook: voucher sale ${voucherSaleId} already in status ${sale.status} — skipping`,
       );
+      this.reportMoneyWithoutPayment({
+        message: `Stripe webhook: voucher sale is ${sale.status}, not PENDING_PAYMENT — Payment skipped`,
+        sessionId,
+        paymentSource: PaymentSource.VOUCHER,
+        targetId: voucherSaleId,
+        amountCents,
+        extra: { saleStatus: sale.status },
+      });
       return;
     }
 
@@ -314,7 +443,8 @@ export class StripeWebhookService {
             expectedCents,
             actualCents: amountCents,
             target: { type: PaymentSource.VOUCHER, voucherSaleId },
-            outcome: 'sale left PENDING_PAYMENT; Payment NOT recorded; no email',
+            outcome:
+              'sale left PENDING_PAYMENT; Payment NOT recorded; no email',
           },
         },
       );
@@ -345,7 +475,9 @@ export class StripeWebhookService {
       );
     });
 
-    this.logger.log(`Voucher sale ${voucherSaleId} activated via Stripe webhook`);
+    this.logger.log(
+      `Voucher sale ${voucherSaleId} activated via Stripe webhook`,
+    );
 
     // ── Send the voucher email ────────────────────────────────────────────────
     // Fire-and-forget AFTER commit — a mail failure must never roll back a real
@@ -359,12 +491,24 @@ export class StripeWebhookService {
         grossCents: sale.grossCents,
         delivery: sale.delivery,
       })
-      .catch((err: unknown) =>
+      .catch((err: unknown) => {
         this.logger.error(
           `Failed to send voucher email for sale ${voucherSaleId}`,
           err,
-        ),
-      );
+        );
+        // M5: the email is the ONLY delivery channel for the code — a failure
+        // means the customer paid and got nothing. Escalate; an admin can
+        // recover via POST /admin/vouchers/:code/resend-email.
+        Sentry.captureException(err, {
+          level: 'error',
+          tags: { area: 'email', payment_source: PaymentSource.VOUCHER },
+          extra: {
+            voucherSaleId,
+            outcome:
+              'sale VALID + Payment recorded; voucher-code email NOT delivered — use the admin resend endpoint',
+          },
+        });
+      });
   }
 
   // ─── Shared LINK payment writer (maps source → the correct target FK) ────────
@@ -380,8 +524,14 @@ export class StripeWebhookService {
     },
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const { source, targetId, amountCents, sessionId, paymentIntentId, vatRateBps } =
-      params;
+    const {
+      source,
+      targetId,
+      amountCents,
+      sessionId,
+      paymentIntentId,
+      vatRateBps,
+    } = params;
 
     await this.payments.recordPayment(
       {
@@ -395,8 +545,7 @@ export class StripeWebhookService {
           source === PaymentSource.TATTOO ? targetId : undefined,
         guestArtistBookingId:
           source === PaymentSource.GUEST_TABLE ? targetId : undefined,
-        voucherSaleId:
-          source === PaymentSource.VOUCHER ? targetId : undefined,
+        voucherSaleId: source === PaymentSource.VOUCHER ? targetId : undefined,
       },
       tx,
     );
