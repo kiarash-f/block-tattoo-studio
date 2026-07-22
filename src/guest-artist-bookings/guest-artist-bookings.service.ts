@@ -12,6 +12,10 @@ import { StationConfigService } from '../station-config/station-config.service';
 import { CreateGuestBookingDto } from './dto/create-guest-booking.dto';
 import { UpdateGuestBookingDto } from './dto/update-guest-booking.dto';
 import { ListGuestBookingsQueryDto } from './dto/list-guest-bookings.query.dto';
+import {
+  LockNamespace,
+  acquireNamespaceLock,
+} from '../common/db/advisory-lock';
 
 // Statuses that count against availability
 const ACTIVE_STATUSES: GuestBookingStatus[] = [
@@ -108,6 +112,68 @@ export class GuestArtistBookingsService {
     };
   }
 
+  // ─── Availability invariant ────────────────────────────────────────────────
+
+  /**
+   * Throw unless every day in [startDate, endDate] can absorb `numberOfTables`
+   * more. Shared by create and admin update so the two can't drift.
+   *
+   * MUST run inside a transaction that already holds the guest-table advisory
+   * lock: on its own this is a read, and a read cannot make a check-then-write
+   * atomic. The lock is what turns it into a real guard (C3).
+   *
+   * `excludeBookingId` drops the row being edited from the tally — its current
+   * footprint is being replaced by the one under test, so counting both would
+   * make a booking collide with its own former self.
+   */
+  private async assertTablesAvailable(
+    tx: Prisma.TransactionClient,
+    params: {
+      startDate: Date;
+      endDate: Date;
+      numberOfTables: number;
+      totalTables: number;
+      excludeBookingId?: string;
+    },
+  ): Promise<void> {
+    const {
+      startDate,
+      endDate,
+      numberOfTables,
+      totalTables,
+      excludeBookingId,
+    } = params;
+
+    const overlapping = await tx.guestArtistBooking.findMany({
+      where: {
+        status: { in: ACTIVE_STATUSES },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+      },
+      select: { startDate: true, endDate: true, numberOfTables: true },
+    });
+
+    const bookedMap = new Map<string, number>();
+    for (const b of overlapping) {
+      for (const day of eachDay(b.startDate, b.endDate)) {
+        const key = day.toISOString().slice(0, 10);
+        bookedMap.set(key, (bookedMap.get(key) ?? 0) + b.numberOfTables);
+      }
+    }
+
+    for (const day of eachDay(startDate, endDate)) {
+      const key = day.toISOString().slice(0, 10);
+      const already = bookedMap.get(key) ?? 0;
+      if (already + numberOfTables > totalTables) {
+        throw new BadRequestException(
+          `Not enough tables available on ${key}. ` +
+            `Available: ${totalTables - already}, requested: ${numberOfTables}.`,
+        );
+      }
+    }
+  }
+
   // ─── Create booking (public) ───────────────────────────────────────────────
 
   async create(dto: CreateGuestBookingDto) {
@@ -135,34 +201,19 @@ export class GuestArtistBookingsService {
     const totalPriceCents = Math.round(baseCents * (1 - discountPercent / 100));
 
     // ── Availability check + booking creation in a single transaction ─────────
+    // The lock comes FIRST: without it two concurrent requests both read the
+    // same "tables free" state at READ COMMITTED, both pass, and both insert —
+    // overbooking the studio (C3). Holding it across the check and the insert
+    // makes the pair atomic; it releases on commit/rollback.
     const booking = await this.prisma.$transaction(async (tx) => {
-      const overlapping = await tx.guestArtistBooking.findMany({
-        where: {
-          status: { in: ACTIVE_STATUSES },
-          startDate: { lte: endDate },
-          endDate: { gte: startDate },
-        },
-        select: { startDate: true, endDate: true, numberOfTables: true },
+      await acquireNamespaceLock(tx, LockNamespace.GUEST_TABLE_AVAILABILITY);
+
+      await this.assertTablesAvailable(tx, {
+        startDate,
+        endDate,
+        numberOfTables: dto.numberOfTables,
+        totalTables: config.totalTables,
       });
-
-      const bookedMap = new Map<string, number>();
-      for (const b of overlapping) {
-        for (const day of eachDay(b.startDate, b.endDate)) {
-          const key = day.toISOString().slice(0, 10);
-          bookedMap.set(key, (bookedMap.get(key) ?? 0) + b.numberOfTables);
-        }
-      }
-
-      for (const day of eachDay(startDate, endDate)) {
-        const key = day.toISOString().slice(0, 10);
-        const already = bookedMap.get(key) ?? 0;
-        if (already + dto.numberOfTables > config.totalTables) {
-          throw new BadRequestException(
-            `Not enough tables available on ${key}. ` +
-              `Available: ${config.totalTables - already}, requested: ${dto.numberOfTables}.`,
-          );
-        }
-      }
 
       return tx.guestArtistBooking.create({
         data: {
@@ -265,49 +316,84 @@ export class GuestArtistBookingsService {
   async update(id: string, dto: UpdateGuestBookingDto) {
     const existing = await this.prisma.guestArtistBooking.findUnique({
       where: { id },
+      select: { id: true },
     });
     if (!existing) throw new NotFoundException('Guest booking not found');
 
-    const needsRecalc =
-      dto.startDate !== undefined ||
-      dto.endDate !== undefined ||
-      dto.numberOfTables !== undefined;
+    const config = await this.configSvc.get();
 
-    const startDate = dto.startDate
-      ? parseDate(dto.startDate)
-      : existing.startDate;
-    const endDate = dto.endDate ? parseDate(dto.endDate) : existing.endDate;
-    const numberOfTables = dto.numberOfTables ?? existing.numberOfTables;
+    // Same lock as create(), for the same reason: an admin edit that grows a
+    // booking races against public creates, and previously did not check
+    // availability at all (C3). The row is re-read INSIDE the lock so the
+    // fields the edit merges into (dates, table count, status) can't have been
+    // moved by a concurrent write between the read and the check.
+    return this.prisma.$transaction(async (tx) => {
+      await acquireNamespaceLock(tx, LockNamespace.GUEST_TABLE_AVAILABILITY);
 
-    if (endDate < startDate) {
-      throw new BadRequestException('endDate must be on or after startDate');
-    }
+      const current = await tx.guestArtistBooking.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Guest booking not found');
 
-    let totalPriceCents = existing.totalPriceCents;
-    let discountApplied = existing.discountApplied;
+      const needsRecalc =
+        dto.startDate !== undefined ||
+        dto.endDate !== undefined ||
+        dto.numberOfTables !== undefined;
 
-    if (needsRecalc) {
-      const config = await this.configSvc.get();
-      const numberOfDays = countDays(startDate, endDate);
-      const applyDiscount = numberOfDays >= 30;
-      const discountPercent = applyDiscount ? config.monthlyDiscountPercent : 0;
-      discountApplied = discountPercent;
-      const baseCents = config.pricePerDayCents * numberOfTables * numberOfDays;
-      totalPriceCents = Math.round(baseCents * (1 - discountPercent / 100));
-    }
+      const startDate = dto.startDate
+        ? parseDate(dto.startDate)
+        : current.startDate;
+      const endDate = dto.endDate ? parseDate(dto.endDate) : current.endDate;
+      const numberOfTables = dto.numberOfTables ?? current.numberOfTables;
 
-    return this.prisma.guestArtistBooking.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name } : {}),
-        ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
-        ...(dto.email !== undefined ? { email: dto.email } : {}),
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
-        ...(dto.startDate !== undefined ? { startDate } : {}),
-        ...(dto.endDate !== undefined ? { endDate } : {}),
-        ...(dto.numberOfTables !== undefined ? { numberOfTables } : {}),
-        ...(needsRecalc ? { totalPriceCents, discountApplied } : {}),
-      },
+      if (endDate < startDate) {
+        throw new BadRequestException('endDate must be on or after startDate');
+      }
+
+      let totalPriceCents = current.totalPriceCents;
+      let discountApplied = current.discountApplied;
+
+      if (needsRecalc) {
+        const numberOfDays = countDays(startDate, endDate);
+        const applyDiscount = numberOfDays >= 30;
+        const discountPercent = applyDiscount
+          ? config.monthlyDiscountPercent
+          : 0;
+        discountApplied = discountPercent;
+        const baseCents =
+          config.pricePerDayCents * numberOfTables * numberOfDays;
+        totalPriceCents = Math.round(baseCents * (1 - discountPercent / 100));
+      }
+
+      // The booking's capacity footprint changes when its dates/table count
+      // move, and also when a status change makes a previously-inactive booking
+      // start consuming tables again (e.g. EXPIRED → CONFIRMED).
+      const nextStatus = dto.status ?? current.status;
+      const willConsumeCapacity = ACTIVE_STATUSES.includes(nextStatus);
+      const footprintChanged =
+        needsRecalc || !ACTIVE_STATUSES.includes(current.status);
+
+      if (willConsumeCapacity && footprintChanged) {
+        await this.assertTablesAvailable(tx, {
+          startDate,
+          endDate,
+          numberOfTables,
+          totalTables: config.totalTables,
+          excludeBookingId: id,
+        });
+      }
+
+      return tx.guestArtistBooking.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.phone !== undefined ? { phone: dto.phone } : {}),
+          ...(dto.email !== undefined ? { email: dto.email } : {}),
+          ...(dto.status !== undefined ? { status: dto.status } : {}),
+          ...(dto.startDate !== undefined ? { startDate } : {}),
+          ...(dto.endDate !== undefined ? { endDate } : {}),
+          ...(dto.numberOfTables !== undefined ? { numberOfTables } : {}),
+          ...(needsRecalc ? { totalPriceCents, discountApplied } : {}),
+        },
+      });
     });
   }
 

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -50,6 +51,9 @@ export interface RecordPaymentInput {
 
   createdByAdminId?: string; // CASH only; null/undefined for webhook-created
   note?: string;
+
+  /** CASH only — client-supplied double-submit key; unique when present (M2). */
+  cashIdempotencyKey?: string;
 }
 
 @Injectable()
@@ -177,6 +181,11 @@ export class PaymentsService {
    * Admin-initiated cash payment. Fixes method = CASH, status = PAID (default),
    * stamps createdByAdminId, and validates both the invariant and that the
    * target exists before delegating to recordPayment.
+   *
+   * When the caller supplies an idempotency key, a repeat submission (double
+   * click, retried request, flaky connection) returns the payment created the
+   * first time rather than a second PAID row inflating revenue (M2). The
+   * returned `idempotentReplay` flag tells the caller which happened.
    */
   async createCashPayment(dto: CreatePaymentDto, adminId: string) {
     const target = {
@@ -188,23 +197,63 @@ export class PaymentsService {
     this.assertTargetMatchesSource(target);
     await this.assertTargetExists(target);
 
-    const payment = await this.recordPayment({
-      source: dto.source,
-      method: PaymentMethod.CASH,
-      grossCents: dto.grossCents,
-      bookingRequestId: dto.bookingRequestId,
-      guestArtistBookingId: dto.guestArtistBookingId,
-      paidAt: dto.paidAt ? new Date(dto.paidAt) : undefined,
-      note: dto.note,
-      createdByAdminId: adminId,
-    });
+    let payment: Awaited<ReturnType<typeof this.recordPayment>>;
+    let idempotentReplay = false;
+
+    try {
+      payment = await this.recordPayment({
+        source: dto.source,
+        method: PaymentMethod.CASH,
+        grossCents: dto.grossCents,
+        bookingRequestId: dto.bookingRequestId,
+        guestArtistBookingId: dto.guestArtistBookingId,
+        paidAt: dto.paidAt ? new Date(dto.paidAt) : undefined,
+        note: dto.note,
+        createdByAdminId: adminId,
+        cashIdempotencyKey: dto.idempotencyKey,
+      });
+    } catch (err) {
+      // The unique index is the arbiter, not a pre-read: two simultaneous
+      // submissions of the same key both attempt the insert and Postgres lets
+      // exactly one win. The loser lands here and adopts the winner's row.
+      const existing = await this.findByCashIdempotencyKey(err, dto);
+      if (!existing) throw err;
+      payment = existing;
+      idempotentReplay = true;
+    }
 
     // Soft over-payment signal for priced tattoo bookings (never blocks).
     const overPayment = dto.bookingRequestId
       ? await this.checkOverPayment(dto.bookingRequestId)
       : { overPaymentWarning: false, overageCents: 0 };
 
-    return { payment, ...overPayment };
+    return { payment, idempotentReplay, ...overPayment };
+  }
+
+  /**
+   * Resolve a create failure to the already-recorded payment when — and only
+   * when — it is a unique violation on `cashIdempotencyKey` and a key was
+   * actually supplied. Any other error (including a P2002 on a different
+   * column) returns null so the caller rethrows it untouched.
+   */
+  private async findByCashIdempotencyKey(err: unknown, dto: CreatePaymentDto) {
+    if (!dto.idempotencyKey) return null;
+    if (
+      !(err instanceof Prisma.PrismaClientKnownRequestError) ||
+      err.code !== 'P2002'
+    ) {
+      return null;
+    }
+    const targetFields = err.meta?.target;
+    const hitCashKey = Array.isArray(targetFields)
+      ? targetFields.includes('cashIdempotencyKey')
+      : typeof targetFields === 'string' &&
+        targetFields.includes('cashIdempotencyKey');
+    if (!hitCashKey) return null;
+
+    return this.prisma.payment.findUnique({
+      where: { cashIdempotencyKey: dto.idempotencyKey },
+    });
   }
 
   /**
@@ -217,25 +266,30 @@ export class PaymentsService {
    * rejected. An optional reason is appended to the note for audit.
    */
   async cancelPayment(id: string, adminId: string, reason?: string) {
-    const payment = await this.prisma.payment.findUnique({ where: { id } });
-    if (!payment) {
+    // Read first only to compose the note from the existing one; the read is
+    // NOT the guard. Two concurrent cancels can both reach this point.
+    const existing = await this.prisma.payment.findUnique({
+      where: { id },
+      select: { note: true },
+    });
+    if (!existing) {
       throw new NotFoundException(`Payment ${id} not found`);
-    }
-    if (payment.status !== PaymentStatus.PAID) {
-      throw new BadRequestException(
-        `Only a PAID payment can be cancelled (current status: ${payment.status})`,
-      );
     }
 
     const trimmedReason = reason?.trim();
     const note = trimmedReason
-      ? payment.note
-        ? `${payment.note} | Cancelled: ${trimmedReason}`
+      ? existing.note
+        ? `${existing.note} | Cancelled: ${trimmedReason}`
         : `Cancelled: ${trimmedReason}`
-      : payment.note;
+      : existing.note;
 
-    return this.prisma.payment.update({
-      where: { id },
+    // The status flip is the guard: an atomic conditional update matching only
+    // a still-PAID row, so of two concurrent cancels exactly one flips it. The
+    // loser matches 0 rows and cannot overwrite the winner's cancelledAt /
+    // cancelledByAdminId or append its reason a second time (M1) — same pattern
+    // as voucher redeem.
+    const result = await this.prisma.payment.updateMany({
+      where: { id, status: PaymentStatus.PAID },
       data: {
         status: PaymentStatus.CANCELLED,
         cancelledAt: new Date(),
@@ -243,6 +297,23 @@ export class PaymentsService {
         note,
       },
     });
+
+    if (result.count === 0) {
+      // Nothing flipped — re-read to disambiguate for a precise admin message.
+      const current = await this.prisma.payment.findUnique({
+        where: { id },
+        select: { status: true },
+      });
+      if (!current) throw new NotFoundException(`Payment ${id} not found`);
+      if (current.status === PaymentStatus.CANCELLED) {
+        throw new ConflictException(`Payment ${id} is already cancelled`);
+      }
+      throw new BadRequestException(
+        `Only a PAID payment can be cancelled (current status: ${current.status})`,
+      );
+    }
+
+    return this.prisma.payment.findUniqueOrThrow({ where: { id } });
   }
 
   /**
@@ -293,6 +364,7 @@ export class PaymentsService {
         stripeChargeId: input.stripeChargeId ?? null,
         createdByAdminId: input.createdByAdminId ?? null,
         note: input.note ?? null,
+        cashIdempotencyKey: input.cashIdempotencyKey ?? null,
       },
     });
   }

@@ -43,9 +43,17 @@ export class PaymentsController {
       'Creates a CASH Payment (status PAID) against a target (TATTOO → ' +
       'bookingRequestId, GUEST_TABLE → guestArtistBookingId). The VAT split is ' +
       'computed server-side from the configured rate; createdByAdminId is taken ' +
-      'from the authenticated admin.',
+      'from the authenticated admin. Send an `idempotencyKey` (minted once per ' +
+      'payment form and reused on retry) to make double submits safe: a repeat ' +
+      'returns the original payment with `idempotentReplay: true` instead of ' +
+      'recording a second one.',
   })
-  @ApiResponse({ status: 201, description: 'Payment recorded.' })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Payment recorded, or — when idempotencyKey matches an earlier ' +
+      'submission — the previously recorded payment (idempotentReplay: true).',
+  })
   @ApiResponse({
     status: 400,
     description: 'Invalid amount, or target does not match source.',
@@ -69,7 +77,13 @@ export class PaymentsController {
   @ApiResponse({ status: 200, description: 'Payment cancelled.' })
   @ApiResponse({
     status: 400,
-    description: 'Payment is not PAID (already cancelled or refunded).',
+    description: 'Payment is in a status that cannot be cancelled (e.g. REFUNDED).',
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Payment is already CANCELLED — including when a concurrent request ' +
+      'cancelled it first.',
   })
   @ApiResponse({ status: 404, description: 'Payment not found.' })
   cancel(

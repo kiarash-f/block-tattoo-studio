@@ -57,4 +57,18 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsISO8601()
   paidAt?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Client-generated idempotency key (e.g. a UUID minted once per payment ' +
+      'form, reused across retries). Re-posting with the same key returns the ' +
+      'payment created the first time instead of creating a second one. Omit ' +
+      'to opt out of double-submit protection.',
+    example: '9f1c2d3e-4b5a-6c7d-8e9f-0a1b2c3d4e5f',
+    maxLength: 100,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  idempotencyKey?: string;
 }

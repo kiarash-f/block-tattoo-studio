@@ -14,6 +14,25 @@ import {
   ValidatedWindow,
 } from './session-window.service';
 
+/**
+ * Statuses that actually consume consult-slot capacity. A cancelled or
+ * completed consult must not hold a seat — counting it would permanently
+ * shrink the slot and block assignment to a slot that is really free (M12).
+ * The public availability endpoint has always used this filter; the admin
+ * paths now match it, so both views agree on what "full" means.
+ */
+const CAPACITY_CONSUMING_STATUSES = [
+  BookingStatus.PENDING_CONSULT,
+  BookingStatus.CONSULT_APPROVED,
+];
+
+/** Prisma `_count` selector counting only capacity-consuming bookings. */
+const capacityCount = {
+  select: {
+    bookings: { where: { status: { in: CAPACITY_CONSUMING_STATUSES } } },
+  },
+} as const;
+
 @Injectable()
 export class SchedulingService {
   constructor(
@@ -56,7 +75,7 @@ export class SchedulingService {
   async listConsultSlots() {
     const slots = await this.prisma.consultSlot.findMany({
       orderBy: { date: 'asc' },
-      include: { _count: { select: { bookings: true } } },
+      include: { _count: capacityCount },
     });
 
     return slots.map((s) => ({
@@ -70,6 +89,9 @@ export class SchedulingService {
   }
 
   async deleteConsultSlot(id: string) {
+    // Deliberately counts bookings in EVERY status, unlike the capacity paths:
+    // deletion must not orphan a cancelled consult's reference to this slot,
+    // so any attached booking blocks it regardless of whether it holds a seat.
     const slot = await this.prisma.consultSlot.findUnique({
       where: { id },
       include: { _count: { select: { bookings: true } } },
@@ -111,7 +133,7 @@ export class SchedulingService {
 
     const slot = await this.prisma.consultSlot.findUnique({
       where: { id: dto.consultSlotId },
-      include: { _count: { select: { bookings: true } } },
+      include: { _count: capacityCount },
     });
     if (!slot) throw new NotFoundException('Consult slot not found');
 
@@ -157,7 +179,7 @@ export class SchedulingService {
     const slots = await this.prisma.consultSlot.findMany({
       where: { date: { gt: today } },
       orderBy: { date: 'asc' },
-      include: { _count: { select: { bookings: true } } },
+      include: { _count: capacityCount },
     });
 
     const availableDates = slots
@@ -215,30 +237,37 @@ export class SchedulingService {
       dto.artistId !== undefined ||
       dto.scheduledDate !== undefined ||
       editingWindow;
-    if (moved && effStartsAt && effEndsAt) {
-      await this.window.assertNoArtistCollision({
-        artistId: nextArtistId,
-        scheduledDate: nextScheduledDate,
-        startsAt: effStartsAt,
-        endsAt: effEndsAt,
-        excludeSessionId: sessionId,
-      });
-    }
 
-    return this.prisma.tattooSession.update({
-      where: { id: sessionId },
-      data: {
-        ...(dto.scheduledDate ? { scheduledDate: nextScheduledDate } : {}),
-        ...(dto.artistId ? { artistId: dto.artistId } : {}),
-        ...(nextWindow
-          ? { startsAt: nextWindow.startsAt, endsAt: nextWindow.endsAt }
-          : {}),
-        ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-      },
-      include: {
-        artist: { select: { id: true, displayName: true } },
-        station: { select: { id: true, name: true } },
-      },
+    // The check and the write must be one atomic unit, so this path gets a
+    // transaction it previously lacked — an edit moving a session into a slot
+    // could otherwise race a concurrent schedule/walk-in for the same artist
+    // and produce the overlap both calls just verified was absent (H1).
+    return this.prisma.$transaction(async (tx) => {
+      if (moved && effStartsAt && effEndsAt) {
+        await this.window.lockArtistAndAssertNoCollision(tx, {
+          artistId: nextArtistId,
+          scheduledDate: nextScheduledDate,
+          startsAt: effStartsAt,
+          endsAt: effEndsAt,
+          excludeSessionId: sessionId,
+        });
+      }
+
+      return tx.tattooSession.update({
+        where: { id: sessionId },
+        data: {
+          ...(dto.scheduledDate ? { scheduledDate: nextScheduledDate } : {}),
+          ...(dto.artistId ? { artistId: dto.artistId } : {}),
+          ...(nextWindow
+            ? { startsAt: nextWindow.startsAt, endsAt: nextWindow.endsAt }
+            : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+        },
+        include: {
+          artist: { select: { id: true, displayName: true } },
+          station: { select: { id: true, name: true } },
+        },
+      });
     });
   }
 

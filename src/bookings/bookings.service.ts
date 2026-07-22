@@ -281,16 +281,18 @@ export class BookingsService {
       throw new BadRequestException('Artist not found or inactive');
     }
 
-    // Validate the window + reject a per-artist same-day overlap (shared helper).
+    // Validate the window up front; the overlap check itself runs inside the
+    // transaction below, under the artist's lock, so it can't be raced (H1).
     const window = this.sessionWindow.parseWindow(data.startsAt, data.endsAt);
-    await this.sessionWindow.assertNoArtistCollision({
-      artistId: data.artistId,
-      scheduledDate: data.scheduledDate,
-      startsAt: window.startsAt,
-      endsAt: window.endsAt,
-    });
 
     const session = await this.prisma.$transaction(async (tx) => {
+      await this.sessionWindow.lockArtistAndAssertNoCollision(tx, {
+        artistId: data.artistId,
+        scheduledDate: data.scheduledDate,
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+      });
+
       const s = await tx.tattooSession.create({
         data: {
           bookingRequestId,
@@ -363,16 +365,18 @@ export class BookingsService {
       throw new BadRequestException('Artist not found or inactive');
     }
 
-    // Same shared window validation + per-artist collision check as schedule-tattoo.
+    // Same shared window validation + per-artist collision check as
+    // schedule-tattoo, likewise locked inside the transaction (H1).
     const window = this.sessionWindow.parseWindow(data.startsAt, data.endsAt);
-    await this.sessionWindow.assertNoArtistCollision({
-      artistId: data.artistId,
-      scheduledDate: data.tattooDate,
-      startsAt: window.startsAt,
-      endsAt: window.endsAt,
-    });
 
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.sessionWindow.lockArtistAndAssertNoCollision(tx, {
+        artistId: data.artistId,
+        scheduledDate: data.tattooDate,
+        startsAt: window.startsAt,
+        endsAt: window.endsAt,
+      });
+
       // Upsert client
       let clientRow = data.client.email
         ? await tx.client.findFirst({ where: { email: data.client.email } })
